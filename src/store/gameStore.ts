@@ -13,8 +13,10 @@ import {
   addLog,
   clonar,
   comprarArma as comprarArmaEngine,
+  comprarMercado as comprarMercadoEngine,
   contratarAdvogado as contratarAdvogadoEngine,
   deployarVendedor as deployarVendedorEngine,
+  driveBy as driveByEngine,
   invadirComSoldado,
   limparIntelExpirado,
   moverSoldado as moverSoldadoEngine,
@@ -26,6 +28,7 @@ import {
   type ResultadoAcao,
 } from '../engine/actions';
 import { aplicarEconomia } from '../engine/economia';
+import { gerarMercado } from '../engine/mercado';
 import { executarTurnoIA } from '../engine/ai';
 import { bairroDe, iasDe, soldadosDisponiveis } from '../engine/selectors';
 import { avaliarStatus } from '../engine/victory';
@@ -61,9 +64,11 @@ interface GameStore {
   protegerBairro: (soldadoId: string) => void;
   sondarBairro: (soldadoId: string, alvoId: string) => void;
   invadirBairro: (soldadoId: string, alvoId: string) => void;
+  driveBy: (soldadoId: string, alvoId: string) => void;
 
   // Gestão da facção (dependem só de caixa, não gastam job).
   comprarArma: (armaId: string, soldadoId: string) => void;
+  comprarMercado: (itemId: string, soldadoId?: string) => void;
   recrutarSoldado: (bairroId: string) => void;
   contratarAdvogado: () => void;
 
@@ -181,10 +186,24 @@ export const useGameStore = create<GameStore>((set, get) => {
       }
     },
 
+    driveBy(soldadoId, alvoId) {
+      const game = ativo();
+      if (!game) return;
+      const resultado = driveByEngine(game, game.jogadorId, soldadoId, alvoId);
+      const ok = aplicar(resultado);
+      if (ok) set((s) => ({ flash: { cor: 'vitoria', seq: s.flash.seq + 1 } }));
+    },
+
     comprarArma(armaId, soldadoId) {
       const game = ativo();
       if (!game) return;
       aplicar(comprarArmaEngine(game, game.jogadorId, armaId, soldadoId));
+    },
+
+    comprarMercado(itemId, soldadoId) {
+      const game = ativo();
+      if (!game) return;
+      aplicar(comprarMercadoEngine(game, game.jogadorId, itemId, soldadoId));
     },
 
     recrutarSoldado(bairroId) {
@@ -221,6 +240,8 @@ export const useGameStore = create<GameStore>((set, get) => {
       s.turno.acoesRestantes = soldadosDisponiveis(s, s.jogadorId).length;
       s.turno.fase = 'decisao';
       limparIntelExpirado(s);
+      // Mercado Negro renova as ofertas.
+      s.mercado = gerarMercado(s.turno.numero);
 
       s.status = avaliarStatus(s);
       if (s.status === 'vitoria') {

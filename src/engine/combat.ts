@@ -5,7 +5,7 @@
  * Funções puras: recebem estado, devolvem resultado. RNG injetável pra testes.
  */
 
-import type { Arma, Bairro, Soldado, SoldadoStatus, Traco } from '../types/game';
+import type { Arma, Bairro, Soldado, SoldadoStatus, Traco, Veiculo } from '../types/game';
 
 export type Rng = () => number;
 
@@ -46,6 +46,9 @@ export const BONUS_PROTEGER = 1.2;
  * protegendo) enquanto ainda há rank-and-file de pé pra servir de escudo.
  */
 export const PROTEGIDO_REDUCAO = 0.25;
+
+/** Colete: multiplicador na chance de o soldado ser atingido (reduz o dano). */
+export const COLETE_REDUCAO = 0.6;
 
 /** Soldado blindado: peça-chave ou em postura de proteção. Cai por último. */
 export function ehGuardado(s: Soldado): boolean {
@@ -112,7 +115,8 @@ function calcularBaixas(
   for (const s of soldados) {
     if (!participaDeCombate(s)) continue;
 
-    const pressaoEfetiva = ehGuardado(s) && temEscudo ? pressao * PROTEGIDO_REDUCAO : pressao;
+    let pressaoEfetiva = ehGuardado(s) && temEscudo ? pressao * PROTEGIDO_REDUCAO : pressao;
+    if (s.colete) pressaoEfetiva *= COLETE_REDUCAO; // colete segura parte do dano
     if (rng() < pressaoEfetiva) {
       // Atingido. Se já estava ferido, não resiste de novo.
       let status: SoldadoStatus;
@@ -182,6 +186,51 @@ export function resolverCombate(
   return {
     vencedor,
     forcaAtaque: Math.round(forcaAtaque),
+    forcaDefesa: Math.round(forcaDefesa),
+    baixasAtacante,
+    baixasDefensor,
+  };
+}
+
+export interface ResultadoDriveBy {
+  forcaAtaque: number;
+  forcaDefesa: number;
+  baixasAtacante: Baixa[];
+  baixasDefensor: Baixa[];
+}
+
+/**
+ * Drive-by: ataque-relâmpago motorizado. Fere/mata defensores mas NÃO toma o
+ * território (bate e corre). A velocidade do carro turbina o ataque; a blindagem
+ * reduz as baixas do próprio crew. Bom pra amolecer um alvo antes de invadir.
+ */
+export function resolverDriveBy(
+  atacantes: Soldado[],
+  defensores: Soldado[],
+  bairro: Bairro,
+  carro: Veiculo,
+  armas: Map<string, Arma>,
+  rng: Rng = Math.random,
+): ResultadoDriveBy {
+  const armaDe = (s: Soldado) => (s.armaId ? armas.get(s.armaId) : undefined);
+
+  const somaAtaque =
+    atacantes.reduce((acc, s) => acc + poderEfetivo(s, armaDe(s)), 0) * (1 + carro.velocidade * 0.06);
+  const somaDefesa = defensores.reduce((acc, s) => acc + poderDefensivo(s, armaDe(s)), 0);
+  const garrison = defensores.length === 0 ? garrisonNeutro(bairro.risco) : 0;
+  const forcaDefesa = somaDefesa + garrison;
+
+  const vantagem = somaAtaque / Math.max(forcaDefesa, 1);
+  // Mais vantagem = mais baixas no alvo; blindagem protege quem está no carro.
+  const pressaoDefensor = Math.min(0.85, 0.25 + 0.25 * vantagem);
+  const pressaoAtacante = Math.max(0.05, 0.3 - carro.blindagem * 0.05);
+
+  const baixasDefensor = calcularBaixas(defensores, pressaoDefensor, bairro.risco, rng);
+  // Atacantes fogem no carro — sem risco de prisão local.
+  const baixasAtacante = calcularBaixas(atacantes, pressaoAtacante, 0, rng);
+
+  return {
+    forcaAtaque: Math.round(somaAtaque),
     forcaDefesa: Math.round(forcaDefesa),
     baixasAtacante,
     baixasDefensor,

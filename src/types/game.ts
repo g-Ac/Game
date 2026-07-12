@@ -21,7 +21,35 @@ export type Patente = 'soldado' | 'tenente' | 'capitao';
  * Job que o soldado executa no turno (estilo Respect 2). Cada soldado de pé faz
  * UM job por turno; depois fica "gasto" até o próximo. `null` = ainda livre.
  */
-export type SoldadoJob = 'vender' | 'sondar' | 'proteger' | 'invadir' | 'mover' | null;
+export type SoldadoJob = 'vender' | 'sondar' | 'proteger' | 'invadir' | 'driveby' | 'mover' | null;
+
+/** Veículo (Mercado Negro) — usado em drive-by. */
+export interface Veiculo {
+  id: string;
+  nome: string;
+  /** Lugares: quantos capangas embarcam no drive-by. */
+  lugares: number;
+  /** Velocidade (1-5): bônus de iniciativa/ataque no drive-by. */
+  velocidade: number;
+  /** Blindagem (1-5): reduz baixas do próprio crew no drive-by. */
+  blindagem: number;
+}
+
+export type MercadoItemTipo = 'arma' | 'carro' | 'colete' | 'elite';
+
+/** Uma oferta do Mercado Negro no turno atual (tudo em cash). */
+export interface MercadoItem {
+  id: string;
+  tipo: MercadoItemTipo;
+  nome: string;
+  descricao: string;
+  custo: number;
+  /** 'arma': id da arma + quantidade equipada nos mais fracos. */
+  armaId?: string;
+  quantidade?: number;
+  /** 'carro': o veículo ofertado. */
+  veiculo?: Veiculo;
+}
 
 /** Fase atual do turno (loop de jogo do doc, seção 4). */
 export type FaseTurno = 'relatorio' | 'decisao' | 'ia' | 'fim';
@@ -52,6 +80,8 @@ export interface Soldado {
   corre: number;
   /** id da arma equipada, ou null (briga no braço). */
   armaId: string | null;
+  /** Tem colete? Reduz o dano recebido em combate. */
+  colete: boolean;
   status: SoldadoStatus;
   /** Facção dona do soldado. */
   faccaoId: string;
@@ -104,6 +134,8 @@ export interface Faccao {
   /** 0-100. Heat / atenção policial acumulada. */
   calor: number;
   soldados: Soldado[];
+  /** Garagem — veículos comprados no Mercado Negro (usados em drive-by). */
+  veiculos: Veiculo[];
 }
 
 export interface Cidade {
@@ -190,4 +222,6 @@ export interface GameState {
   dificuldade: Dificuldade;
   /** Relatório de grana do último fechamento de turno (pra UI mostrar o popup). */
   ultimoRelatorio: RelatorioGrana | null;
+  /** Ofertas do Mercado Negro neste turno (renova a cada turno). */
+  mercado: MercadoItem[];
 }

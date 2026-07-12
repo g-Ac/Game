@@ -28,6 +28,7 @@ export function soldado(over: Partial<Soldado> = {}): Soldado {
     forca: 10,
     corre: 4,
     armaId: null,
+    colete: false,
     status: 'ativo',
     faccaoId: 'f1',
     bairroId: 'b1',

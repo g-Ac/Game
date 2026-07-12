@@ -15,6 +15,7 @@ const JOB_TXT: Record<string, string> = {
   sondar: '🔍 sondando',
   proteger: '🛡 em guarda',
   invadir: '⚔ invadindo',
+  driveby: '🚗 drive-by',
   mover: '→ movendo',
 };
 
@@ -39,6 +40,7 @@ export function SoldadoRow({ soldado, arma, selecionado, selecionavel, onPress }
         </Text>
         <Text style={styles.detalhe}>
           {arma?.nome ?? 'Desarmado'} · {soldado.traco}
+          {soldado.colete ? ' · 🦺' : ''}
         </Text>
       </View>
       <View style={styles.dir}>

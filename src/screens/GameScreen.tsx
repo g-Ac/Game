@@ -25,6 +25,7 @@ import { FlashOverlay } from '../components/FlashOverlay';
 import { GameOverOverlay } from '../components/GameOverOverlay';
 import { LogPanel } from '../components/LogPanel';
 import { LojaModal } from '../components/LojaModal';
+import { MercadoModal } from '../components/MercadoModal';
 import { RelatorioModal } from '../components/RelatorioModal';
 import { SoldadoRow } from '../components/SoldadoRow';
 import { StatPill } from '../components/StatPill';
@@ -47,6 +48,7 @@ const JOB_LABEL: Record<Exclude<SoldadoJob, null>, string> = {
   sondar: 'sondando',
   proteger: 'protegendo',
   invadir: 'invadindo',
+  driveby: 'no drive-by',
   mover: 'em deslocamento',
 };
 
@@ -72,7 +74,9 @@ export function GameScreen({ navigation }: GameProps) {
   const protegerBairro = useGameStore((s) => s.protegerBairro);
   const sondarBairro = useGameStore((s) => s.sondarBairro);
   const invadirBairro = useGameStore((s) => s.invadirBairro);
+  const driveBy = useGameStore((s) => s.driveBy);
   const comprarArma = useGameStore((s) => s.comprarArma);
+  const comprarMercado = useGameStore((s) => s.comprarMercado);
   const recrutarSoldado = useGameStore((s) => s.recrutarSoldado);
   const contratarAdvogado = useGameStore((s) => s.contratarAdvogado);
   const passarTurno = useGameStore((s) => s.passarTurno);
@@ -83,6 +87,7 @@ export function GameScreen({ navigation }: GameProps) {
   const [selBairroId, setSelBairroId] = useState<string | null>(null);
   const [selSoldadoId, setSelSoldadoId] = useState<string | null>(null);
   const [lojaAberta, setLojaAberta] = useState(false);
+  const [mercadoAberto, setMercadoAberto] = useState(false);
 
   useEffect(() => {
     if (!feedback) return;
@@ -183,6 +188,12 @@ export function GameScreen({ navigation }: GameProps) {
               cor={jog.calor >= CALOR_LIMIAR_BATIDA ? cores.danger : cores.bloodLight}
             />
           </View>
+
+          <Botao
+            titulo="🛒 Mercado Negro"
+            variante="neutro"
+            onPress={() => setMercadoAberto(true)}
+          />
 
           {jog.calor > 0 ? (
             <View style={styles.advogadoRow}>
@@ -341,22 +352,31 @@ export function GameScreen({ navigation }: GameProps) {
                             </Text>
                             {intel ? <Text style={styles.intelTag}>🎯 Intel ativo</Text> : null}
                             {rival ? (
-                              <View style={styles.jobGrid}>
-                                <Botao
-                                  titulo="⚔ Invadir"
-                                  variante="ataque"
-                                  disabled={atk <= 0}
-                                  onPress={() => invadirBairro(selSoldado.id, alvo.id)}
-                                  style={styles.jobBtn}
-                                />
-                                <Botao
-                                  titulo="🔍 Sondar"
-                                  variante="neutro"
-                                  disabled={intel}
-                                  onPress={() => sondarBairro(selSoldado.id, alvo.id)}
-                                  style={styles.jobBtn}
-                                />
-                              </View>
+                              <>
+                                <View style={styles.jobGrid}>
+                                  <Botao
+                                    titulo="⚔ Invadir"
+                                    variante="ataque"
+                                    disabled={atk <= 0}
+                                    onPress={() => invadirBairro(selSoldado.id, alvo.id)}
+                                    style={styles.jobBtn}
+                                  />
+                                  <Botao
+                                    titulo="🔍 Sondar"
+                                    variante="neutro"
+                                    disabled={intel}
+                                    onPress={() => sondarBairro(selSoldado.id, alvo.id)}
+                                    style={styles.jobBtn}
+                                  />
+                                </View>
+                                {jog.veiculos.length > 0 ? (
+                                  <Botao
+                                    titulo="🚗 Drive-by (bate e corre)"
+                                    variante="ataque"
+                                    onPress={() => driveBy(selSoldado.id, alvo.id)}
+                                  />
+                                ) : null}
+                              </>
                             ) : null}
                           </View>
                         );
@@ -420,6 +440,15 @@ export function GameScreen({ navigation }: GameProps) {
       <FlashOverlay seq={flash.seq} cor={flash.cor} />
       <TurnoBanner turno={game.turno.numero} />
       <RelatorioModal relatorio={game.ultimoRelatorio} onFechar={limparRelatorio} />
+
+      <MercadoModal
+        visible={mercadoAberto}
+        itens={game.mercado}
+        veiculos={jog.veiculos}
+        caixa={jog.caixa}
+        onComprar={(itemId) => comprarMercado(itemId)}
+        onClose={() => setMercadoAberto(false)}
+      />
 
       <LojaModal
         visible={lojaAberta}

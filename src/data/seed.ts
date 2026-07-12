@@ -9,6 +9,7 @@
 
 import { cores } from '../theme/tokens';
 import { CAIXA_INICIAL, DEMANDA_TIER } from '../engine/economia';
+import { gerarMercado } from '../engine/mercado';
 import type {
   Arma,
   Bairro,
@@ -120,6 +121,7 @@ function soldado(
     forca,
     corre,
     armaId,
+    colete: false,
     status: 'ativo',
     faccaoId,
     bairroId,
@@ -146,6 +148,7 @@ function jogador(): Faccao {
       soldado('p2', 'Bagre', JOGADOR_ID, B_BECO, 9, 5, 'ganancioso', 'pistola', 'tenente'),
       soldado('p3', 'Formiga', JOGADOR_ID, B_BECO, 8, 4, 'covarde', 'faca'),
     ],
+    veiculos: [],
   };
 }
 
@@ -176,6 +179,7 @@ function ia(dificuldade: Dificuldade): Faccao {
     respeito: 0,
     calor: 0,
     soldados,
+    veiculos: [],
   };
 }
 
@@ -215,6 +219,7 @@ export function criarPartida(dificuldade: Dificuldade = 'normal'): GameState {
     intel: [],
     dificuldade,
     ultimoRelatorio: null,
+    mercado: gerarMercado(1),
   };
 }
 

@@ -18,7 +18,7 @@ import {
   TRACOS,
 } from '../data/seed';
 import { ESTABILIDADE_INICIAL } from './economia';
-import { participaDeCombate, resolverCombate, type Baixa, type Rng } from './combat';
+import { participaDeCombate, resolverCombate, resolverDriveBy, type Baixa, type Rng } from './combat';
 import {
   alvosPossiveis,
   armaDe,
@@ -168,6 +168,7 @@ export function recrutarSoldado(
     forca,
     corre,
     armaId: 'faca',
+    colete: false,
     status: 'ativo',
     faccaoId,
     bairroId,
@@ -441,6 +442,141 @@ export function sondarComSoldado(
   s.jobAtual = 'sondar';
   addLog(novo, 'info', `${s.nome} sondou ${alvo.nome}. Intel obtido (+ataque no próximo assalto).`);
   return { state: novo, ok: true, mensagem: `Intel sobre ${alvo.nome} obtido.` };
+}
+
+/**
+ * Compra um item do Mercado Negro (tudo em cash). Aplica o efeito e remove a
+ * oferta do turno. `soldadoId` opcional mira o colete num soldado específico.
+ */
+export function comprarMercado(
+  state: GameState,
+  faccaoId: string,
+  itemId: string,
+  soldadoId?: string,
+): ResultadoAcao {
+  const novo = clonar(state);
+  const fac = faccaoDe(novo, faccaoId);
+  if (!fac) return { state, ok: false, mensagem: 'Facção inválida.' };
+  const item = novo.mercado.find((m) => m.id === itemId);
+  if (!item) return { state, ok: false, mensagem: 'Oferta indisponível.' };
+  if (fac.caixa < item.custo) {
+    return { state, ok: false, mensagem: `Caixa insuficiente ($${item.custo}).` };
+  }
+
+  const dePe = fac.soldados.filter(participaDeCombate);
+
+  if (item.tipo === 'arma' && item.armaId) {
+    const arma = armaDe(novo, item.armaId);
+    if (!arma) return { state, ok: false, mensagem: 'Arma inválida.' };
+    const n = item.quantidade ?? 1;
+    // Equipa os N com arma mais fraca que ainda não têm essa arma.
+    const alvos = [...dePe]
+      .filter((s) => s.armaId !== item.armaId)
+      .sort((a, b) => (armaDe(novo, a.armaId)?.dano ?? 0) - (armaDe(novo, b.armaId)?.dano ?? 0))
+      .slice(0, n);
+    if (alvos.length === 0) return { state, ok: false, mensagem: 'Ninguém pra armar com isso.' };
+    for (const s of alvos) s.armaId = item.armaId;
+    addLog(novo, 'info', `${fac.nome} comprou ${item.nome} e armou ${alvos.length} capanga(s).`);
+  } else if (item.tipo === 'carro' && item.veiculo) {
+    fac.veiculos.push({ ...item.veiculo });
+    addLog(novo, 'info', `${fac.nome} comprou o carro ${item.veiculo.nome} (drive-by liberado).`);
+  } else if (item.tipo === 'colete') {
+    const alvo =
+      (soldadoId ? dePe.find((s) => s.id === soldadoId && !s.colete) : undefined) ??
+      [...dePe].filter((s) => !s.colete).sort((a, b) => b.forca - a.forca)[0];
+    if (!alvo) return { state, ok: false, mensagem: 'Todo mundo já tem colete.' };
+    alvo.colete = true;
+    addLog(novo, 'info', `${fac.nome} pôs colete em ${alvo.nome}.`);
+  } else if (item.tipo === 'elite') {
+    const base = bairrosDaFaccao(novo, faccaoId).sort((a, b) => b.valorBase - a.valorBase)[0];
+    if (!base) return { state, ok: false, mensagem: 'Sem território pra receber o soldado.' };
+    const seq = novo.recrutaSeq;
+    novo.recrutaSeq += 1;
+    fac.soldados.push({
+      id: `${faccaoId}-e${seq}`,
+      nome: NOMES_RECRUTA[Math.floor((seq * 7) % NOMES_RECRUTA.length)] ?? `Elite ${seq}`,
+      lealdade: 80,
+      traco: 'leal',
+      forca: 13,
+      corre: 8,
+      armaId: 'escopeta',
+      colete: true,
+      status: 'ativo',
+      faccaoId,
+      bairroId: base.id,
+      patente: 'tenente',
+      importante: true,
+      mortes: 0,
+      jobAtual: null,
+      agiuNoTurno: true,
+    });
+    addLog(novo, 'info', `${fac.nome} contratou um Soldado de Elite em ${base.nome}.`);
+  }
+
+  fac.caixa -= item.custo;
+  novo.mercado = novo.mercado.filter((m) => m.id !== itemId);
+  return { state: novo, ok: true, mensagem: `Comprou: ${item.nome}.` };
+}
+
+/**
+ * Drive-by: o líder embarca o crew do bairro num carro e mete bala num alvo rival
+ * adjacente. Fere/mata defensores mas NÃO toma o território (bate e corre). Gasta
+ * o job do crew e sobe o calor.
+ */
+export function driveBy(
+  state: GameState,
+  faccaoId: string,
+  soldadoId: string,
+  alvoId: string,
+  rng: Rng = Math.random,
+): ResultadoAcao {
+  const novo = clonar(state);
+  const fac = faccaoDe(novo, faccaoId);
+  const lider = encontrarSoldado(novo, soldadoId);
+  if (!fac || !lider || lider.faccaoId !== faccaoId) {
+    return { state, ok: false, mensagem: 'Soldado inválido pra essa facção.' };
+  }
+  if (!podeAgir(lider)) return { state, ok: false, mensagem: `${lider.nome} já agiu neste turno.` };
+  // Melhor carro da garagem (mais lugares).
+  const carro = [...fac.veiculos].sort((a, b) => b.lugares - a.lugares)[0];
+  if (!carro) return { state, ok: false, mensagem: 'Sem carro na garagem — compre um no Mercado.' };
+  const alvo = bairroDe(novo, alvoId);
+  const origem = bairroDe(novo, lider.bairroId);
+  if (!alvo || !origem || origem.dono !== faccaoId || !origem.conexoes.includes(alvoId)) {
+    return { state, ok: false, mensagem: 'Alvo inválido (precisa ser vizinho a partir de bairro seu).' };
+  }
+  if (alvo.dono === faccaoId || alvo.dono === null) {
+    return { state, ok: false, mensagem: 'Drive-by é contra território rival.' };
+  }
+
+  // Crew embarca: quem está na origem, de pé, livre — até os lugares do carro.
+  const crew = fac.soldados
+    .filter((s) => s.bairroId === lider.bairroId && podeAgir(s))
+    .sort((a, b) => b.forca - a.forca)
+    .slice(0, carro.lugares);
+
+  const defensores = defensoresDoBairro(novo, alvoId);
+  const resultado = resolverDriveBy(crew, defensores, alvo, carro, armasMap(novo), rng);
+  aplicarBaixas(novo, resultado.baixasAtacante);
+  aplicarBaixas(novo, resultado.baixasDefensor);
+
+  const mortosInimigos = resultado.baixasDefensor.filter((b) => b.status === 'morto').length;
+  if (mortosInimigos > 0) lider.mortes += mortosInimigos;
+
+  for (const s of crew) {
+    s.agiuNoTurno = true;
+    s.jobAtual = 'driveby';
+  }
+  fac.calor = Math.min(100, fac.calor + 6);
+  fac.respeito += 2 + mortosInimigos * 2;
+
+  const nBaixas = resultado.baixasAtacante.length + resultado.baixasDefensor.length;
+  addLog(
+    novo,
+    'combate',
+    `${fac.nome} deu um drive-by em ${alvo.nome} (${carro.nome}) — ${nBaixas} baixa(s).`,
+  );
+  return { state: novo, ok: true, mensagem: `Drive-by em ${alvo.nome}: ${resultado.baixasDefensor.length} inimigo(s) atingido(s).` };
 }
 
 /** Reseta os jobs dos soldados de pé de uma facção (início de um turno dela). */
