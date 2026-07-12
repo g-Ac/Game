@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cores, espaco, fontes } from '../theme/tokens';
 import {
@@ -26,11 +26,13 @@ import {
 } from '../engine/selectors';
 import { BairroCard } from '../components/BairroCard';
 import { Botao } from '../components/Botao';
+import { FlashOverlay } from '../components/FlashOverlay';
 import { GameOverOverlay } from '../components/GameOverOverlay';
 import { LogPanel } from '../components/LogPanel';
 import { LojaModal } from '../components/LojaModal';
 import { SoldadoRow } from '../components/SoldadoRow';
 import { StatPill } from '../components/StatPill';
+import { TurnoBanner } from '../components/TurnoBanner';
 import type { GameProps } from '../navigation/types';
 import type { Soldado } from '../types/game';
 
@@ -53,6 +55,7 @@ export function GameScreen({ navigation }: GameProps) {
   const passarTurno = useGameStore((s) => s.passarTurno);
   const novoJogo = useGameStore((s) => s.novoJogo);
   const sairParaMenu = useGameStore((s) => s.sairParaMenu);
+  const flash = useGameStore((s) => s.flash);
 
   const [selBairroId, setSelBairroId] = useState<string | null>(null);
   const [selSoldadoId, setSelSoldadoId] = useState<string | null>(null);
@@ -64,6 +67,32 @@ export function GameScreen({ navigation }: GameProps) {
     const t = setTimeout(() => limparFeedback(), 2600);
     return () => clearTimeout(t);
   }, [feedback, limparFeedback]);
+
+  // Shake da tela a cada combate (dispara pelo contador de flash do store).
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (flash.seq === 0) return;
+    shakeAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: 1, duration: 45, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -1, duration: 45, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 1, duration: 45, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 45, useNativeDriver: true }),
+    ]).start();
+  }, [flash.seq, shakeAnim]);
+
+  // Entrada animada do feedback (aparece deslizando/fade em vez de piscar).
+  const fbOp = useRef(new Animated.Value(0)).current;
+  const fbY = useRef(new Animated.Value(6)).current;
+  useEffect(() => {
+    if (!feedback) return;
+    fbOp.setValue(0);
+    fbY.setValue(6);
+    Animated.parallel([
+      Animated.timing(fbOp, { toValue: 1, duration: 180, useNativeDriver: true }),
+      Animated.spring(fbY, { toValue: 0, friction: 6, useNativeDriver: true }),
+    ]).start();
+  }, [feedback, fbOp, fbY]);
 
   const alvos = useMemo(
     () => (game ? new Set(alvosPossiveis(game, game.jogadorId).map((b) => b.id)) : new Set<string>()),
@@ -112,8 +141,13 @@ export function GameScreen({ navigation }: GameProps) {
     ? soldadosNoBairro(game, selBairro.dono ?? '', selBairro.id)
     : [];
 
+  const shakeX = shakeAnim.interpolate({ inputRange: [-1, 1], outputRange: [-8, 8] });
+
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
+    <View style={styles.root}>
+      <Animated.View
+        style={[styles.screen, { paddingTop: insets.top, transform: [{ translateX: shakeX }] }]}
+      >
       <ScrollView
         contentContainerStyle={[styles.conteudo, { paddingBottom: insets.bottom + 96 }]}
       >
@@ -130,7 +164,7 @@ export function GameScreen({ navigation }: GameProps) {
 
         {/* Stats da facção */}
         <View style={styles.stats}>
-          <StatPill label="Caixa" valor={`$${jog.caixa}`} cor={cores.moneyLight} />
+          <StatPill label="Caixa" valor={jog.caixa} prefixo="$" cor={cores.moneyLight} />
           <StatPill label="Respeito" valor={jog.respeito} cor={cores.gold1} />
           <StatPill
             label="Calor"
@@ -298,9 +332,12 @@ export function GameScreen({ navigation }: GameProps) {
       {/* Barra fixa inferior */}
       <View style={[styles.rodape, { paddingBottom: insets.bottom + espaco.sm }]}>
         {feedback ? (
-          <Text style={styles.feedback} numberOfLines={2}>
+          <Animated.Text
+            style={[styles.feedback, { opacity: fbOp, transform: [{ translateY: fbY }] }]}
+            numberOfLines={2}
+          >
             {feedback}
-          </Text>
+          </Animated.Text>
         ) : null}
         <View style={styles.rodapeBtns}>
           <Botao
@@ -317,6 +354,11 @@ export function GameScreen({ navigation }: GameProps) {
           />
         </View>
       </View>
+      </Animated.View>
+
+      {/* Overlays de animação (não pegam toque) */}
+      <FlashOverlay seq={flash.seq} cor={flash.cor} />
+      <TurnoBanner turno={game.turno.numero} />
 
       <LojaModal
         visible={lojaAberta}
@@ -349,6 +391,7 @@ export function GameScreen({ navigation }: GameProps) {
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: cores.bg },
   screen: { flex: 1, backgroundColor: cores.bg },
   conteudo: { padding: espaco.md, gap: espaco.md },
   vazio: { flex: 1, backgroundColor: cores.bg, justifyContent: 'center', alignItems: 'center', gap: espaco.md },

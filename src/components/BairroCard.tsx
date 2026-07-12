@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { cores, espaco, fontes } from '../theme/tokens';
 import type { Bairro } from '../types/game';
 
@@ -21,16 +22,31 @@ export function BairroCard({
   atacavel,
   onPress,
 }: Props) {
+  // Pulso quando o bairro troca de dono (momento da conquista).
+  const pulso = useRef(new Animated.Value(1)).current;
+  const donoAnterior = useRef(bairro.dono);
+  useEffect(() => {
+    if (donoAnterior.current !== bairro.dono) {
+      donoAnterior.current = bairro.dono;
+      pulso.setValue(1);
+      Animated.sequence([
+        Animated.spring(pulso, { toValue: 1.14, friction: 4, useNativeDriver: true }),
+        Animated.spring(pulso, { toValue: 1, friction: 5, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [bairro.dono, pulso]);
+
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.card,
-        { borderColor: selecionado ? cores.gold1 : donoCor },
-        selecionado ? styles.selecionado : null,
-        pressed ? styles.pressed : null,
-      ]}
-    >
+    <Animated.View style={[styles.wrap, { transform: [{ scale: pulso }] }]}>
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.card,
+          { borderColor: selecionado ? cores.gold1 : donoCor },
+          selecionado ? styles.selecionado : null,
+          pressed ? styles.pressed : null,
+        ]}
+      >
       <Text style={styles.nome} numberOfLines={1}>
         {bairro.nome}
       </Text>
@@ -41,16 +57,18 @@ export function BairroCard({
         <Text style={styles.meta}>${bairro.valorBase}</Text>
         <Text style={styles.meta}>risco {bairro.risco}</Text>
       </View>
-      <View style={styles.rodape}>
-        <Text style={styles.tropas}>♦ {numSoldados}</Text>
-        {bairro.producao > 0 ? <Text style={styles.boca}>▲ {bairro.producao}</Text> : null}
-        {atacavel ? <Text style={styles.alvo}>⚔ ALVO</Text> : null}
-      </View>
-    </Pressable>
+        <View style={styles.rodape}>
+          <Text style={styles.tropas}>♦ {numSoldados}</Text>
+          {bairro.producao > 0 ? <Text style={styles.boca}>▲ {bairro.producao}</Text> : null}
+          {atacavel ? <Text style={styles.alvo}>⚔ ALVO</Text> : null}
+        </View>
+      </Pressable>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrap: { flex: 1 },
   card: {
     flex: 1,
     backgroundColor: cores.bgElev,

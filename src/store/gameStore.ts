@@ -22,15 +22,24 @@ import {
   type ResultadoAcao,
 } from '../engine/actions';
 import { executarTurnoIA } from '../engine/ai';
-import { iasDe } from '../engine/selectors';
+import { bairroDe, iasDe } from '../engine/selectors';
 import { avaliarStatus } from '../engine/victory';
 import { carregarJogo, salvarJogo } from '../storage/persistence';
 import type { GameState } from '../types/game';
+
+/** Deixa visual pra UI animar o resultado de um combate. */
+interface FlashCombate {
+  cor: 'vitoria' | 'derrota' | null;
+  /** Incrementa a cada combate — a UI observa a mudança pra disparar a animação. */
+  seq: number;
+}
 
 interface GameStore {
   game: GameState | null;
   /** Mensagem curta da última ação (sucesso ou erro) pra feedback na UI. */
   feedback: string | null;
+  /** Cue de animação do último combate. */
+  flash: FlashCombate;
   temSave: boolean;
 
   novoJogo: () => void;
@@ -69,6 +78,7 @@ export const useGameStore = create<GameStore>((set, get) => {
   return {
     game: null,
     feedback: null,
+    flash: { cor: null, seq: 0 },
     temSave: false,
 
     novoJogo() {
@@ -158,7 +168,14 @@ export const useGameStore = create<GameStore>((set, get) => {
         set({ feedback: 'Sem ações neste turno. Passe o turno.' });
         return;
       }
-      aplicar(atacarBairroEngine(game, game.jogadorId, alvoId), true);
+      const resultado = atacarBairroEngine(game, game.jogadorId, alvoId);
+      aplicar(resultado, true);
+      if (resultado.ok) {
+        // Vitória se o alvo passou a ser do jogador; senão foi repelido.
+        const dono = bairroDe(resultado.state, alvoId)?.dono;
+        const cor = dono === game.jogadorId ? 'vitoria' : 'derrota';
+        set((s) => ({ flash: { cor, seq: s.flash.seq + 1 } }));
+      }
     },
 
     passarTurno() {

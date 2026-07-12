@@ -1,17 +1,20 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { cores, espaco, fontes } from '../theme/tokens';
+import { AnimatedNumber } from './AnimatedNumber';
 
 interface Props {
   label: string;
-  valor: string | number;
+  valor: number;
+  /** Prefixo mostrado antes do número (ex.: "$"). */
+  prefixo?: string;
   cor?: string;
 }
 
-export function StatPill({ label, valor, cor = cores.gold1 }: Props) {
+export function StatPill({ label, valor, prefixo, cor = cores.gold1 }: Props) {
   return (
     <View style={styles.pill}>
       <Text style={styles.label}>{label}</Text>
-      <Text style={[styles.valor, { color: cor }]}>{valor}</Text>
+      <AnimatedNumber valor={valor} prefixo={prefixo} style={[styles.valor, { color: cor }]} />
     </View>
   );
 }
