@@ -47,7 +47,7 @@ interface ConfigArquetipo {
 }
 
 const CONFIG: Record<Arquetipo, ConfigArquetipo> = {
-  agressivo: { razaoAtaque: 0.9, reservaCaixa: 0, pesoJogador: 1.4, pesoNeutro: 1.0, tetoExercito: 7 },
+  agressivo: { razaoAtaque: 1.0, reservaCaixa: 100, pesoJogador: 1.4, pesoNeutro: 1.0, tetoExercito: 8 },
   paciente: { razaoAtaque: 1.4, reservaCaixa: 400, pesoJogador: 0.8, pesoNeutro: 1.3, tetoExercito: 6 },
   oportunista: { razaoAtaque: 1.15, reservaCaixa: 150, pesoJogador: 0.7, pesoNeutro: 1.5, tetoExercito: 6 },
 };
@@ -209,6 +209,23 @@ export function executarTurnoIA(state: GameState, faccaoId: string, rng: Rng = M
     if (r.ok) atual = r.state;
   } else {
     atual = reforcar(atual, faccaoId);
+  }
+
+  // 4. Guarda seletiva: só quem está NA FRONTEIRA (bairro que faz divisa com
+  //    inimigo) assume postura defensiva. Turtle geral trava a partida em empate.
+  const facFinal = faccaoDe(atual, faccaoId);
+  if (facFinal) {
+    const proprios = new Set(bairrosDaFaccao(atual, faccaoId).map((b) => b.id));
+    const fronteira = new Set(
+      bairrosDaFaccao(atual, faccaoId)
+        .filter((b) => b.conexoes.some((c) => !proprios.has(c)))
+        .map((b) => b.id),
+    );
+    for (const s of facFinal.soldados) {
+      if (participaDeCombate(s) && s.jobAtual === null && fronteira.has(s.bairroId)) {
+        s.jobAtual = 'proteger';
+      }
+    }
   }
 
   return atual;

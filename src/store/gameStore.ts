@@ -1,28 +1,33 @@
 /**
  * Store global da partida (Zustand). Orquestra o loop de turno:
- *   decisão do jogador → resolução → fase da IA → renda → checagem de vitória.
+ *   jobs dos soldados → fase da IA → renda → checagem de vitória.
+ * Cada soldado de pé faz UM job por turno (vender/sondar/proteger/invadir/mover);
+ * ações de gestão (armar/recrutar/boca/advogado) dependem só de caixa.
  * Persiste automaticamente no AsyncStorage a cada mudança relevante.
  */
 
 import { create } from 'zustand';
-import { ACOES_POR_TURNO, criarPartida } from '../data/seed';
+import { criarPartida } from '../data/seed';
 import {
   aplicarBatidaPolicial,
   aplicarRenda,
   addLog,
-  atacarBairro as atacarBairroEngine,
   clonar,
   comprarArma as comprarArmaEngine,
   construirBoca as construirBocaEngine,
   contratarAdvogado as contratarAdvogadoEngine,
-  espionarBairro as espionarBairroEngine,
+  invadirComSoldado,
   limparIntelExpirado,
   moverSoldado as moverSoldadoEngine,
+  protegerBairro as protegerBairroEngine,
   recrutarSoldado as recrutarSoldadoEngine,
+  resetarJobs,
+  sondarComSoldado,
+  venderNoBairro as venderNoBairroEngine,
   type ResultadoAcao,
 } from '../engine/actions';
 import { executarTurnoIA } from '../engine/ai';
-import { bairroDe, iasDe } from '../engine/selectors';
+import { bairroDe, iasDe, soldadosDisponiveis } from '../engine/selectors';
 import { avaliarStatus } from '../engine/victory';
 import { carregarJogo, salvarJogo } from '../storage/persistence';
 import type { GameState } from '../types/game';
@@ -48,31 +53,45 @@ interface GameStore {
   sairParaMenu: () => void;
   limparFeedback: () => void;
 
+  // Jobs por soldado (gastam o turno do soldado).
   moverSoldado: (soldadoId: string, destinoId: string) => void;
+  venderNoBairro: (soldadoId: string) => void;
+  protegerBairro: (soldadoId: string) => void;
+  sondarBairro: (soldadoId: string, alvoId: string) => void;
+  invadirBairro: (soldadoId: string, alvoId: string) => void;
+
+  // Gestão da facção (dependem só de caixa, não gastam job).
   comprarArma: (armaId: string, soldadoId: string) => void;
   recrutarSoldado: (bairroId: string) => void;
   construirBoca: (bairroId: string) => void;
-  espionarBairro: (alvoId: string) => void;
   contratarAdvogado: () => void;
-  atacarBairro: (alvoId: string) => void;
+
   passarTurno: () => void;
 }
 
 export const useGameStore = create<GameStore>((set, get) => {
-  /** Aplica o resultado de uma ação do jogador, gastando uma ação se `custaAcao`. */
-  function aplicar(resultado: ResultadoAcao, custaAcao: boolean): void {
+  /** Aplica o resultado de uma ação; atualiza o contador de soldados livres e persiste. */
+  function aplicar(resultado: ResultadoAcao): boolean {
     if (!resultado.ok) {
       set({ feedback: resultado.mensagem });
-      return;
+      return false;
     }
     const novo = resultado.state;
-    if (custaAcao) novo.turno.acoesRestantes = Math.max(0, novo.turno.acoesRestantes - 1);
+    // "Livres" no HUD = soldados que ainda podem receber um job.
+    novo.turno.acoesRestantes = soldadosDisponiveis(novo, novo.jogadorId).length;
     novo.status = avaliarStatus(novo);
     if (novo.status === 'vitoria') {
       addLog(novo, 'fim', 'Você dominou toda a Zona Sul. VITÓRIA.');
     }
     set({ game: novo, feedback: resultado.mensagem });
     void salvarJogo(novo);
+    return true;
+  }
+
+  /** Guard comum: precisa ter partida em andamento. */
+  function ativo(): GameState | null {
+    const game = get().game;
+    return game && game.status === 'em_andamento' ? game : null;
   }
 
   return {
@@ -110,83 +129,76 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
 
     moverSoldado(soldadoId, destinoId) {
-      const game = get().game;
-      if (!game || game.status !== 'em_andamento') return;
-      if (game.turno.acoesRestantes <= 0) {
-        set({ feedback: 'Sem ações neste turno. Passe o turno.' });
-        return;
-      }
-      aplicar(moverSoldadoEngine(game, soldadoId, destinoId), true);
+      const game = ativo();
+      if (!game) return;
+      aplicar(moverSoldadoEngine(game, soldadoId, destinoId));
     },
 
-    comprarArma(armaId, soldadoId) {
-      const game = get().game;
-      if (!game || game.status !== 'em_andamento') return;
-      // Compra é econômica (não gasta ação), só depende de caixa.
-      aplicar(comprarArmaEngine(game, game.jogadorId, armaId, soldadoId), false);
+    venderNoBairro(soldadoId) {
+      const game = ativo();
+      if (!game) return;
+      aplicar(venderNoBairroEngine(game, game.jogadorId, soldadoId));
     },
 
-    recrutarSoldado(bairroId) {
-      const game = get().game;
-      if (!game || game.status !== 'em_andamento') return;
-      // Recrutar é econômico (não gasta ação), só depende de caixa.
-      aplicar(recrutarSoldadoEngine(game, game.jogadorId, bairroId), false);
+    protegerBairro(soldadoId) {
+      const game = ativo();
+      if (!game) return;
+      aplicar(protegerBairroEngine(game, game.jogadorId, soldadoId));
     },
 
-    construirBoca(bairroId) {
-      const game = get().game;
-      if (!game || game.status !== 'em_andamento') return;
-      // Montar boca é econômico (não gasta ação), só depende de caixa.
-      aplicar(construirBocaEngine(game, game.jogadorId, bairroId), false);
+    sondarBairro(soldadoId, alvoId) {
+      const game = ativo();
+      if (!game) return;
+      aplicar(sondarComSoldado(game, game.jogadorId, soldadoId, alvoId));
     },
 
-    espionarBairro(alvoId) {
-      const game = get().game;
-      if (!game || game.status !== 'em_andamento') return;
-      if (game.turno.acoesRestantes <= 0) {
-        set({ feedback: 'Sem ações neste turno. Passe o turno.' });
-        return;
-      }
-      aplicar(espionarBairroEngine(game, game.jogadorId, alvoId), true);
-    },
-
-    contratarAdvogado() {
-      const game = get().game;
-      if (!game || game.status !== 'em_andamento') return;
-      // Advogado custa uma ação — gerir o calor compete com mover/atacar (sem spam grátis).
-      if (game.turno.acoesRestantes <= 0) {
-        set({ feedback: 'Sem ações neste turno. Passe o turno.' });
-        return;
-      }
-      aplicar(contratarAdvogadoEngine(game, game.jogadorId), true);
-    },
-
-    atacarBairro(alvoId) {
-      const game = get().game;
-      if (!game || game.status !== 'em_andamento') return;
-      if (game.turno.acoesRestantes <= 0) {
-        set({ feedback: 'Sem ações neste turno. Passe o turno.' });
-        return;
-      }
-      const resultado = atacarBairroEngine(game, game.jogadorId, alvoId);
-      aplicar(resultado, true);
-      if (resultado.ok) {
-        // Vitória se o alvo passou a ser do jogador; senão foi repelido.
+    invadirBairro(soldadoId, alvoId) {
+      const game = ativo();
+      if (!game) return;
+      const resultado = invadirComSoldado(game, game.jogadorId, soldadoId, alvoId);
+      const ok = aplicar(resultado);
+      if (ok) {
+        // Flash: verde se tomamos o bairro, vermelho se fomos repelidos.
         const dono = bairroDe(resultado.state, alvoId)?.dono;
         const cor = dono === game.jogadorId ? 'vitoria' : 'derrota';
         set((s) => ({ flash: { cor, seq: s.flash.seq + 1 } }));
       }
     },
 
+    comprarArma(armaId, soldadoId) {
+      const game = ativo();
+      if (!game) return;
+      aplicar(comprarArmaEngine(game, game.jogadorId, armaId, soldadoId));
+    },
+
+    recrutarSoldado(bairroId) {
+      const game = ativo();
+      if (!game) return;
+      aplicar(recrutarSoldadoEngine(game, game.jogadorId, bairroId));
+    },
+
+    construirBoca(bairroId) {
+      const game = ativo();
+      if (!game) return;
+      aplicar(construirBocaEngine(game, game.jogadorId, bairroId));
+    },
+
+    contratarAdvogado() {
+      const game = ativo();
+      if (!game) return;
+      aplicar(contratarAdvogadoEngine(game, game.jogadorId));
+    },
+
     passarTurno() {
-      const game = get().game;
-      if (!game || game.status !== 'em_andamento') return;
+      const game = ativo();
+      if (!game) return;
 
       let s: GameState = clonar(game);
       s.turno.fase = 'ia';
 
-      // Fase da IA: cada rival age (funções retornam novos estados clonados).
+      // Fase da IA: reseta os jobs dela e cada rival age (tropa ociosa fica em guarda).
       for (const ia of iasDe(s)) {
+        resetarJobs(s, ia.id);
         s = executarTurnoIA(s, ia.id);
       }
 
@@ -194,7 +206,9 @@ export const useGameStore = create<GameStore>((set, get) => {
       aplicarBatidaPolicial(s);
       aplicarRenda(s);
       s.turno.numero += 1;
-      s.turno.acoesRestantes = ACOES_POR_TURNO;
+      // Novo turno do jogador: libera os jobs de todos os soldados dele.
+      resetarJobs(s, s.jogadorId);
+      s.turno.acoesRestantes = soldadosDisponiveis(s, s.jogadorId).length;
       s.turno.fase = 'decisao';
       limparIntelExpirado(s);
 

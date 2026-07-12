@@ -7,32 +7,43 @@ Sim de império criminoso por turnos (paper/protótipo). Este repositório cont�
 > ⚠️ Projeto original. Nome, cidades, facções e assets são próprios — inspirado
 > na *pegada* do gênero, não é cópia.
 
-## O que já roda (v1 — core loop)
+## O que já roda
 
 - **Tela inicial** replicando a estética do protótipo (título dourado stencil,
   grid de cidades, pixel fonts Bungee + VT323).
-- **1 cidade** (Zona Sul, 2020s) com **3 bairros em linha**:
-  `Beco do Sol (você) — Vila Torta (neutro) — Morro Alto (IA)`.
+- **1 cidade** (Zona Sul, 2020s) em **grade 3×3 (9 bairros)**: a rua de baixo
+  `Beco do Sol (você) — Vila Torta (neutro) — Morro Alto (IA)` é a disputa clássica;
+  as duas fileiras de cima são território neutro de expansão (economia e manobra).
 - **2 facções**: Os Corvos (jogador) vs Sindicato Rubro (IA agressiva).
-- **Loop de turno completo**: relatório → decisão do jogador (mover / comprar
-  arma / atacar) → resolução de combate → fase da IA → checagem de vitória/derrota.
+- **Sistema de Jobs por soldado** (estilo *Respect 2*): cada soldado de pé faz **UM
+  job por turno** — **💰 Vender** (faturar na esquina), **🛡 Proteger** (postura
+  defensiva), **🔍 Sondar** (intel de vizinho inimigo), **⚔ Invadir** (liderar o crew
+  num assalto) ou **Mover**. Gestão (armar / recrutar / boca / advogado) depende só
+  de caixa, não gasta job.
+- **Personagens com identidade**: patente (Soldado / Tenente / Capitão), ⭐ peças-chave,
+  contagem de mortes. **Importantes são blindados** em combate — o rank-and-file leva o
+  tiro primeiro; a peça-chave só cai depois que o escudo é dizimado.
 - **Combate** com força dos soldados + dano da arma vs defesa, fator aleatório,
   traços de personalidade, e baixas (ferido / morto / preso por batida policial).
-- **Economia** por turno (renda dos territórios) pra financiar arsenal e recrutas.
-- **Recrutamento** de soldados (compra por caixa em bairro próprio) — snowball via território.
+- **Consolidação**: quem toma um bairro cava trincheira (proteção) e aguenta o
+  contra-ataque imediato do inimigo.
+- **Economia** por turno (renda dos territórios) + venda ativa dos soldados.
+- **Recrutamento** de soldados — snowball via território.
 - **Produção**: bocas/pontos de venda (níveis 1-3) rendem por turno, são tomadas junto
-  com o bairro e atraem polícia (sobem o calor). Trade-off risco × renda.
-- **Espionagem**: gasta caixa + sobe calor pra ganhar intel (bônus no próximo assalto).
-- **Heat / polícia**: calor alto arrisca batida (soldado preso). **Advogado** esfria o calor.
+  com o bairro e atraem polícia. Trade-off risco × renda.
+- **Sondagem / Heat / polícia**: sondar dá intel (bônus no próximo assalto); calor alto
+  arrisca batida (soldado preso, boca estourada). **Advogado** esfria o calor.
 - **Save/load** automático via AsyncStorage (a partida persiste ao fechar o app).
-- **Vitória**: dominar os 3 bairros. **Derrota**: perder território e tropas.
+- **Vitória**: dominar os 9 bairros. **Derrota**: perder todo o território.
 
-## Como jogar (regra do combate)
+## Como jogar (jobs + combate)
 
-Você tem **3 ações por turno** (mover ou atacar). Comprar arma não gasta ação, só
-caixa. A tática que vence: **concentre suas tropas no bairro de frente e assalte** —
-o atacante tem bônus de iniciativa, mas o defensor tem vantagem de casa. Passividade
-tende a empatar.
+Cada soldado de pé faz **um job por turno** — o HUD mostra quantos ainda estão
+**Livres**. A tática que vence: **proteja a fronteira, faça economia (vender/boca) na
+retaguarda, concentre um crew forte num bairro e assalte quando tiver vantagem**. O
+atacante tem bônus de iniciativa (1.2), mas **território protegido segura o
+contra-ataque no empate** — pra tomar terreno defendido você precisa de vantagem de
+força. Território desguarnecido cai fácil.
 
 ## Como rodar no celular (Expo Go)
 

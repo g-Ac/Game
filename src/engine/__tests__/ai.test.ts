@@ -18,10 +18,10 @@ describe('executarTurnoIA', () => {
     const g = criarPartida();
     // Todos os soldados da IA com fuzil => nenhum upgrade de arma disponível.
     for (const s of faccaoDe(g, IA_ID)!.soldados) s.armaId = 'fuzil';
+    faccaoDe(g, IA_ID)!.caixa = 700; // acima da reserva (100) + custo de recruta (450)
     const soldadosAntes = faccaoDe(g, IA_ID)!.soldados.length;
 
     const depois = executarTurnoIA(g, IA_ID, rngSeed(3));
-    // caixa 500 >= custo de recruta (450): entra reforço.
     expect(faccaoDe(depois, IA_ID)!.soldados.length).toBeGreaterThan(soldadosAntes);
   });
 

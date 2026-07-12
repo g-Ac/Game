@@ -30,6 +30,11 @@ export function soldado(over: Partial<Soldado> = {}): Soldado {
     status: 'ativo',
     faccaoId: 'f1',
     bairroId: 'b1',
+    patente: 'soldado',
+    importante: false,
+    mortes: 0,
+    jobAtual: null,
+    agiuNoTurno: false,
     ...over,
   };
 }

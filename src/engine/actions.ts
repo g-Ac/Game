@@ -15,12 +15,16 @@ import {
   CUSTO_RECRUTA,
   ESPIONAGEM_CALOR,
   FATOR_RENDA,
+  FATOR_VENDA,
   INTEL_BONUS_ATAQUE,
   INTEL_DURACAO,
   MAX_BOCA_NIVEL,
   NOMES_RECRUTA,
   RENDA_POR_BOCA,
+  SONDAR_CALOR,
   TRACOS,
+  VENDA_CALOR,
+  VENDA_POR_BOCA,
 } from '../data/seed';
 import { participaDeCombate, resolverCombate, type Baixa, type Rng } from './combat';
 import {
@@ -33,6 +37,8 @@ import {
   destinosDeMovimento,
   faccaoDe,
   forcaDeAtaque,
+  forcaDeAtaqueDoBairro,
+  podeAgir,
   temIntel,
 } from './selectors';
 import type { GameState, LogTipo, Soldado } from '../types/game';
@@ -82,6 +88,9 @@ export function moverSoldado(
   if (s.status !== 'ativo' && s.status !== 'ferido') {
     return { state, ok: false, mensagem: `${s.nome} não pode se mover (${s.status}).` };
   }
+  if (s.agiuNoTurno) {
+    return { state, ok: false, mensagem: `${s.nome} já agiu neste turno.` };
+  }
   const destinos = destinosDeMovimento(novo, s);
   const destino = destinos.find((b) => b.id === destinoId);
   if (!destino) {
@@ -89,6 +98,8 @@ export function moverSoldado(
   }
   const origem = bairroDe(novo, s.bairroId);
   s.bairroId = destinoId;
+  s.agiuNoTurno = true;
+  s.jobAtual = 'mover';
   addLog(novo, 'info', `${s.nome} moveu de ${origem?.nome ?? '?'} pra ${destino.nome}.`);
   return { state: novo, ok: true, mensagem: `${s.nome} → ${destino.nome}` };
 }
@@ -166,12 +177,91 @@ export function recrutarSoldado(
     status: 'ativo',
     faccaoId,
     bairroId,
+    patente: 'soldado',
+    importante: false,
+    mortes: 0,
+    jobAtual: null,
+    // Recém-chegado: entra em serviço só no próximo turno (não invade no mesmo).
+    agiuNoTurno: true,
   });
   addLog(novo, 'info', `${fac.nome} recrutou ${nome} (fç ${forca}, ${traco}) em ${bairro.nome} (-$${CUSTO_RECRUTA}).`);
   return { state: novo, ok: true, mensagem: `Recrutou ${nome} em ${bairro.nome}.` };
 }
 
-/** Ataca um bairro adjacente ao território da facção. */
+/**
+ * Núcleo da resolução de um assalto: dado um conjunto de `atacantes` já
+ * selecionado (refs dentro de `novo`), resolve o combate contra os defensores do
+ * alvo, aplica baixas, transfere o bairro se o ataque vencer e registra o log.
+ * `liderId` (opcional) recebe o crédito das mortes. Muta `novo` (deve ser clone).
+ */
+function executarAssalto(
+  novo: GameState,
+  faccaoId: string,
+  alvoId: string,
+  atacantes: Soldado[],
+  rng: Rng,
+  liderId?: string,
+): ResultadoAcao {
+  const fac = faccaoDe(novo, faccaoId);
+  const alvo = bairroDe(novo, alvoId);
+  if (!fac || !alvo) return { state: novo, ok: false, mensagem: 'Alvo inválido.' };
+
+  const defensores = defensoresDoBairro(novo, alvoId);
+
+  // Intel de espionagem dá bônus de ataque e é consumido no assalto.
+  const comIntel = temIntel(novo, faccaoId, alvoId);
+  const bonus = comIntel ? INTEL_BONUS_ATAQUE : 1;
+  novo.intel = novo.intel.filter((m) => !(m.faccaoId === faccaoId && m.bairroId === alvoId));
+
+  const resultado = resolverCombate(atacantes, defensores, alvo, armasMap(novo), rng, bonus);
+  aplicarBaixas(novo, resultado.baixasAtacante);
+  aplicarBaixas(novo, resultado.baixasDefensor);
+
+  // Crédito de mortes: o líder (ou o atacante mais forte) leva as baixas fatais inimigas.
+  const mortosInimigos = resultado.baixasDefensor.filter((b) => b.status === 'morto').length;
+  if (mortosInimigos > 0 && atacantes.length > 0) {
+    const lider =
+      (liderId ? atacantes.find((a) => a.id === liderId) : undefined) ??
+      [...atacantes].sort((a, b) => b.forca - a.forca)[0];
+    if (lider) lider.mortes += mortosInimigos;
+  }
+
+  const donoAntigo = alvo.dono ? faccaoDe(novo, alvo.dono) : undefined;
+  const nBaixas = resultado.baixasAtacante.length + resultado.baixasDefensor.length;
+  const tagIntel = comIntel ? ' [intel]' : '';
+
+  addLog(
+    novo,
+    'combate',
+    `${fac.nome} atacou ${alvo.nome}${tagIntel} — ataque ${resultado.forcaAtaque} vs defesa ${resultado.forcaDefesa}.`,
+  );
+
+  if (resultado.vencedor === 'atacante') {
+    alvo.dono = faccaoId;
+    // Sobreviventes ocupam o bairro conquistado e já cavam trincheira (consolidam):
+    // assumem postura de proteção pra aguentar o contra-ataque imediato do inimigo.
+    for (const a of atacantes) {
+      if (a.status === 'ativo' || a.status === 'ferido') {
+        a.bairroId = alvoId;
+        a.jobAtual = 'proteger';
+      }
+    }
+    fac.respeito += 10 + Math.round(alvo.valorBase / 100);
+    fac.calor = Math.min(100, fac.calor + 8);
+    const de = donoAntigo ? ` (tomado de ${donoAntigo.nome})` : '';
+    addLog(novo, 'combate', `${fac.nome} DOMINOU ${alvo.nome}${de}. ${nBaixas} baixa(s).`);
+    return { state: novo, ok: true, mensagem: `Você dominou ${alvo.nome}!` };
+  }
+
+  fac.calor = Math.min(100, fac.calor + 4);
+  addLog(novo, 'combate', `${fac.nome} foi repelido em ${alvo.nome}. ${nBaixas} baixa(s).`);
+  return { state: novo, ok: true, mensagem: `Ataque a ${alvo.nome} repelido.` };
+}
+
+/**
+ * Ataca um bairro adjacente ao território da facção com TODA a fronteira (todos
+ * os bairros próprios vizinhos ao alvo). Usado pela IA — combate agregado.
+ */
 export function atacarBairro(
   state: GameState,
   faccaoId: string,
@@ -190,43 +280,138 @@ export function atacarBairro(
   if (atacantes.length === 0) {
     return { state, ok: false, mensagem: 'Sem tropas em bairro vizinho pra atacar.' };
   }
-  const defensores = defensoresDoBairro(novo, alvoId);
+  return executarAssalto(novo, faccaoId, alvoId, atacantes, rng);
+}
 
-  // Intel de espionagem dá bônus de ataque e é consumido no assalto.
-  const comIntel = temIntel(novo, faccaoId, alvoId);
-  const bonus = comIntel ? INTEL_BONUS_ATAQUE : 1;
-  novo.intel = novo.intel.filter((m) => !(m.faccaoId === faccaoId && m.bairroId === alvoId));
-
-  const resultado = resolverCombate(atacantes, defensores, alvo, armasMap(novo), rng, bonus);
-  aplicarBaixas(novo, resultado.baixasAtacante);
-  aplicarBaixas(novo, resultado.baixasDefensor);
-
-  const donoAntigo = alvo.dono ? faccaoDe(novo, alvo.dono) : undefined;
-  const nBaixas = resultado.baixasAtacante.length + resultado.baixasDefensor.length;
-  const tagIntel = comIntel ? ' [intel]' : '';
-
-  addLog(
-    novo,
-    'combate',
-    `${fac.nome} atacou ${alvo.nome}${tagIntel} — ataque ${resultado.forcaAtaque} vs defesa ${resultado.forcaDefesa}.`,
-  );
-
-  if (resultado.vencedor === 'atacante') {
-    alvo.dono = faccaoId;
-    // Sobreviventes ocupam o bairro conquistado.
-    for (const a of atacantes) {
-      if (a.status === 'ativo' || a.status === 'ferido') a.bairroId = alvoId;
-    }
-    fac.respeito += 10 + Math.round(alvo.valorBase / 100);
-    fac.calor = Math.min(100, fac.calor + 8);
-    const de = donoAntigo ? ` (tomado de ${donoAntigo.nome})` : '';
-    addLog(novo, 'combate', `${fac.nome} DOMINOU ${alvo.nome}${de}. ${nBaixas} baixa(s).`);
-    return { state: novo, ok: true, mensagem: `Você dominou ${alvo.nome}!` };
+/**
+ * Job "Invadir": o soldado lidera o crew LIVRE do bairro dele num assalto a um
+ * alvo adjacente. Todo o crew que embarca gasta o job do turno.
+ */
+export function invadirComSoldado(
+  state: GameState,
+  faccaoId: string,
+  soldadoId: string,
+  alvoId: string,
+  rng: Rng = Math.random,
+): ResultadoAcao {
+  const novo = clonar(state);
+  const lider = encontrarSoldado(novo, soldadoId);
+  if (!lider || lider.faccaoId !== faccaoId) {
+    return { state, ok: false, mensagem: 'Soldado inválido pra essa facção.' };
   }
+  if (!podeAgir(lider)) {
+    return { state, ok: false, mensagem: `${lider.nome} já agiu neste turno.` };
+  }
+  const alvo = bairroDe(novo, alvoId);
+  if (!alvo) return { state, ok: false, mensagem: 'Alvo inválido.' };
+  if (alvo.dono === faccaoId) {
+    return { state, ok: false, mensagem: 'Esse bairro já é seu.' };
+  }
+  const { atacantes } = forcaDeAtaqueDoBairro(novo, faccaoId, lider.bairroId, alvoId);
+  if (atacantes.length === 0) {
+    return { state, ok: false, mensagem: 'Sem crew livre neste bairro pra invadir.' };
+  }
+  const res = executarAssalto(novo, faccaoId, alvoId, atacantes, rng, lider.id);
+  if (res.ok) {
+    for (const a of atacantes) {
+      a.agiuNoTurno = true;
+      // Vitória já marcou os sobreviventes como 'proteger' (consolidação); só os
+      // demais (repelidos/baixas) recebem o rótulo 'invadir'.
+      if (a.jobAtual === null) a.jobAtual = 'invadir';
+    }
+  }
+  return res;
+}
 
-  fac.calor = Math.min(100, fac.calor + 4);
-  addLog(novo, 'combate', `${fac.nome} foi repelido em ${alvo.nome}. ${nBaixas} baixa(s).`);
-  return { state: novo, ok: true, mensagem: `Ataque a ${alvo.nome} repelido.` };
+/** Job "Vender": o soldado fatura na esquina do bairro dele (renda ativa + calor). */
+export function venderNoBairro(
+  state: GameState,
+  faccaoId: string,
+  soldadoId: string,
+): ResultadoAcao {
+  const novo = clonar(state);
+  const fac = faccaoDe(novo, faccaoId);
+  const s = encontrarSoldado(novo, soldadoId);
+  if (!fac || !s || s.faccaoId !== faccaoId) {
+    return { state, ok: false, mensagem: 'Soldado inválido pra essa facção.' };
+  }
+  if (!podeAgir(s)) return { state, ok: false, mensagem: `${s.nome} já agiu neste turno.` };
+  const bairro = bairroDe(novo, s.bairroId);
+  if (!bairro || bairro.dono !== faccaoId) {
+    return { state, ok: false, mensagem: 'Só dá pra vender em bairro seu.' };
+  }
+  const ganho = Math.round(bairro.valorBase * FATOR_VENDA) + bairro.producao * VENDA_POR_BOCA;
+  fac.caixa += ganho;
+  fac.calor = Math.min(100, fac.calor + VENDA_CALOR);
+  s.agiuNoTurno = true;
+  s.jobAtual = 'vender';
+  addLog(novo, 'renda', `${s.nome} vendeu em ${bairro.nome}: +$${ganho}.`);
+  return { state: novo, ok: true, mensagem: `${s.nome} faturou +$${ganho}.` };
+}
+
+/** Job "Proteger": postura defensiva no bairro (bônus de defesa + blinda importantes). */
+export function protegerBairro(
+  state: GameState,
+  faccaoId: string,
+  soldadoId: string,
+): ResultadoAcao {
+  const novo = clonar(state);
+  const s = encontrarSoldado(novo, soldadoId);
+  if (!s || s.faccaoId !== faccaoId) {
+    return { state, ok: false, mensagem: 'Soldado inválido pra essa facção.' };
+  }
+  if (!podeAgir(s)) return { state, ok: false, mensagem: `${s.nome} já agiu neste turno.` };
+  s.agiuNoTurno = true;
+  s.jobAtual = 'proteger';
+  const bairro = bairroDe(novo, s.bairroId);
+  addLog(novo, 'info', `${s.nome} assumiu a guarda de ${bairro?.nome ?? 'o bairro'}.`);
+  return { state: novo, ok: true, mensagem: `${s.nome} em guarda.` };
+}
+
+/** Job "Sondar": bisbilhota um bairro adjacente inimigo → intel (grátis, sobe calor). */
+export function sondarComSoldado(
+  state: GameState,
+  faccaoId: string,
+  soldadoId: string,
+  alvoId: string,
+): ResultadoAcao {
+  const novo = clonar(state);
+  const fac = faccaoDe(novo, faccaoId);
+  const s = encontrarSoldado(novo, soldadoId);
+  if (!fac || !s || s.faccaoId !== faccaoId) {
+    return { state, ok: false, mensagem: 'Soldado inválido pra essa facção.' };
+  }
+  if (!podeAgir(s)) return { state, ok: false, mensagem: `${s.nome} já agiu neste turno.` };
+  const origem = bairroDe(novo, s.bairroId);
+  const alvo = bairroDe(novo, alvoId);
+  if (
+    !origem ||
+    !alvo ||
+    origem.dono !== faccaoId ||
+    !origem.conexoes.includes(alvoId) ||
+    alvo.dono === faccaoId
+  ) {
+    return { state, ok: false, mensagem: 'Alvo de sondagem inválido (precisa ser vizinho inimigo).' };
+  }
+  fac.calor = Math.min(100, fac.calor + SONDAR_CALOR);
+  novo.intel = novo.intel.filter((m) => !(m.faccaoId === faccaoId && m.bairroId === alvoId));
+  novo.intel.push({ faccaoId, bairroId: alvoId, expiraTurno: novo.turno.numero + INTEL_DURACAO });
+  s.agiuNoTurno = true;
+  s.jobAtual = 'sondar';
+  addLog(novo, 'info', `${s.nome} sondou ${alvo.nome}. Intel obtido (+ataque no próximo assalto).`);
+  return { state: novo, ok: true, mensagem: `Intel sobre ${alvo.nome} obtido.` };
+}
+
+/** Reseta os jobs dos soldados de pé de uma facção (início de um turno dela). */
+export function resetarJobs(state: GameState, faccaoId: string): void {
+  const fac = faccaoDe(state, faccaoId);
+  if (!fac) return;
+  for (const s of fac.soldados) {
+    if (s.status === 'ativo' || s.status === 'ferido') {
+      s.agiuNoTurno = false;
+      s.jobAtual = null;
+    }
+  }
 }
 
 /**

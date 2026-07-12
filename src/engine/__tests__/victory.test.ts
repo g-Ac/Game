@@ -13,17 +13,17 @@ describe('avaliarStatus', () => {
     expect(avaliarStatus(g)).toBe('vitoria');
   });
 
-  it('derrota quando o jogador perde território e todas as tropas', () => {
+  it('derrota quando o jogador perde todo o território', () => {
     const g = criarPartida();
     for (const b of bairrosDaFaccao(g, JOGADOR_ID)) b.dono = IA_ID;
     for (const s of faccaoDe(g, JOGADOR_ID)!.soldados) s.status = 'morto';
     expect(avaliarStatus(g)).toBe('derrota');
   });
 
-  it('não é derrota se ainda há tropas de pé mesmo sem território', () => {
+  it('derrota mesmo com tropas de pé, se não há território (encalhado = xeque-mate)', () => {
     const g = criarPartida();
     for (const b of bairrosDaFaccao(g, JOGADOR_ID)) b.dono = IA_ID;
-    // soldados seguem ativos
-    expect(avaliarStatus(g)).toBe('em_andamento');
+    // Soldados seguem ativos, mas sem bairro próprio não dá pra recrutar/atacar.
+    expect(avaliarStatus(g)).toBe('derrota');
   });
 });

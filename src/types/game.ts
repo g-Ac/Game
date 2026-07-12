@@ -14,6 +14,15 @@ export type Traco = 'leal' | 'ganancioso' | 'covarde';
 
 export type SoldadoStatus = 'ativo' | 'ferido' | 'preso' | 'morto';
 
+/** Patente do soldado na hierarquia da facção. Tenente/Capitão são "importantes". */
+export type Patente = 'soldado' | 'tenente' | 'capitao';
+
+/**
+ * Job que o soldado executa no turno (estilo Respect 2). Cada soldado de pé faz
+ * UM job por turno; depois fica "gasto" até o próximo. `null` = ainda livre.
+ */
+export type SoldadoJob = 'vender' | 'sondar' | 'proteger' | 'invadir' | 'mover' | null;
+
 /** Fase atual do turno (loop de jogo do doc, seção 4). */
 export type FaseTurno = 'relatorio' | 'decisao' | 'ia' | 'fim';
 
@@ -43,6 +52,16 @@ export interface Soldado {
   faccaoId: string;
   /** Bairro onde o soldado está posicionado. */
   bairroId: string;
+  /** Patente na hierarquia. Recruta entra como 'soldado'. */
+  patente: Patente;
+  /** Peça-chave (⭐): tenente/capitão. Protegido em combate — cai por último. */
+  importante: boolean;
+  /** Inimigos que já derrubou (flavor + alimenta respeito). */
+  mortes: number;
+  /** Job atribuído/executado neste turno; null = livre (ainda pode agir). */
+  jobAtual: SoldadoJob;
+  /** Já gastou o job deste turno? */
+  agiuNoTurno: boolean;
 }
 
 export interface Bairro {

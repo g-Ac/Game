@@ -10,8 +10,19 @@ interface Props {
   onPress?: () => void;
 }
 
+const JOB_TXT: Record<string, string> = {
+  vender: '💰 vendendo',
+  sondar: '🔍 sondando',
+  proteger: '🛡 em guarda',
+  invadir: '⚔ invadindo',
+  mover: '→ movendo',
+};
+
 export function SoldadoRow({ soldado, arma, selecionado, selecionavel, onPress }: Props) {
   const cor = corStatus[soldado.status] ?? cores.cream;
+  const dePe = soldado.status === 'ativo' || soldado.status === 'ferido';
+  // Rótulo à direita: job em andamento tem prioridade sobre o status "ativo".
+  const jobTxt = dePe && soldado.jobAtual ? JOB_TXT[soldado.jobAtual] : null;
   return (
     <Pressable
       onPress={selecionavel ? onPress : undefined}
@@ -23,6 +34,7 @@ export function SoldadoRow({ soldado, arma, selecionado, selecionavel, onPress }
     >
       <View style={styles.esq}>
         <Text style={styles.nome} numberOfLines={1}>
+          {soldado.importante ? '⭐ ' : ''}
           {soldado.nome}
         </Text>
         <Text style={styles.detalhe}>
@@ -31,7 +43,11 @@ export function SoldadoRow({ soldado, arma, selecionado, selecionavel, onPress }
       </View>
       <View style={styles.dir}>
         <Text style={styles.forca}>fç {soldado.forca}</Text>
-        <Text style={[styles.status, { color: cor }]}>{soldado.status}</Text>
+        {jobTxt ? (
+          <Text style={styles.job}>{jobTxt}</Text>
+        ) : (
+          <Text style={[styles.status, { color: cor }]}>{soldado.status}</Text>
+        )}
       </View>
     </Pressable>
   );
@@ -78,5 +94,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textTransform: 'uppercase',
     letterSpacing: 1,
+  },
+  job: {
+    fontFamily: fontes.corpo,
+    fontSize: 13,
+    color: cores.muted,
   },
 });

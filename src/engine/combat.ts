@@ -28,6 +28,36 @@ export function garrisonNeutro(risco: number): number {
   return 8 + risco * 0.2;
 }
 
+/**
+ * Multiplicador de defesa de um soldado com job "Proteger" (postura defensiva).
+ * Calibrado ACIMA do ponto de virada: proteger × casa (1.05) = 1.26 > iniciativa
+ * do atacante (1.2). Consequência de design:
+ *   - Território DESPROTEGIDO (tropa ociosa / em outro job) cai a um ataque no par.
+ *   - Território PROTEGIDO segura o contra-ataque no par — pra tomar, o atacante
+ *     precisa de vantagem de força.
+ * Isso dá valor real ao job Proteger, deixa consolidar conquista viável (quem toma
+ * e cava trincheira aguenta a retomada imediata) e não trava porque território
+ * desguarnecido sempre pode ser tomado.
+ */
+export const BONUS_PROTEGER = 1.2;
+
+/**
+ * Redução da pressão de baixa sobre um soldado "guardado" (importante ou
+ * protegendo) enquanto ainda há rank-and-file de pé pra servir de escudo.
+ */
+export const PROTEGIDO_REDUCAO = 0.25;
+
+/** Soldado blindado: peça-chave ou em postura de proteção. Cai por último. */
+export function ehGuardado(s: Soldado): boolean {
+  return s.importante || s.jobAtual === 'proteger';
+}
+
+/** Poder defensivo de um soldado, com bônus se estiver protegendo o bairro. */
+export function poderDefensivo(s: Soldado, arma: Arma | undefined): number {
+  const base = poderEfetivo(s, arma);
+  return s.jobAtual === 'proteger' ? base * BONUS_PROTEGER : base;
+}
+
 /** Modificador de poder por traço de personalidade. */
 const MOD_TRACO: Record<Traco, number> = {
   leal: 1.1,
@@ -76,10 +106,14 @@ function calcularBaixas(
   rng: Rng,
 ): Baixa[] {
   const baixas: Baixa[] = [];
+  // Enquanto houver rank-and-file de pé, as peças-chave (importantes/protegidos)
+  // ficam blindadas — o escudo humano leva o tiro primeiro.
+  const temEscudo = soldados.some((s) => participaDeCombate(s) && !ehGuardado(s));
   for (const s of soldados) {
     if (!participaDeCombate(s)) continue;
 
-    if (rng() < pressao) {
+    const pressaoEfetiva = ehGuardado(s) && temEscudo ? pressao * PROTEGIDO_REDUCAO : pressao;
+    if (rng() < pressaoEfetiva) {
       // Atingido. Se já estava ferido, não resiste de novo.
       let status: SoldadoStatus;
       if (s.status === 'ferido') {
@@ -112,10 +146,11 @@ export function resolverCombate(
   /** Bônus extra multiplicativo no ataque (ex.: intel de espionagem). */
   bonusAtaque = 1,
 ): ResultadoCombate {
-  const poder = (s: Soldado) => poderEfetivo(s, s.armaId ? armas.get(s.armaId) : undefined);
+  const armaDe = (s: Soldado) => (s.armaId ? armas.get(s.armaId) : undefined);
 
-  const somaAtaque = atacantes.reduce((acc, s) => acc + poder(s), 0);
-  const somaDefesa = defensores.reduce((acc, s) => acc + poder(s), 0);
+  const somaAtaque = atacantes.reduce((acc, s) => acc + poderEfetivo(s, armaDe(s)), 0);
+  // Defensores em postura de "proteger" rendem mais na defesa.
+  const somaDefesa = defensores.reduce((acc, s) => acc + poderDefensivo(s, armaDe(s)), 0);
 
   const garrison = defensores.length === 0 ? garrisonNeutro(bairro.risco) : 0;
 

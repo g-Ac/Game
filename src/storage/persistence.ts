@@ -29,6 +29,16 @@ export async function carregarJogo(): Promise<GameState | null> {
     for (const b of parsed.cidade.bairros ?? []) {
       if (typeof b.producao !== 'number') b.producao = 0;
     }
+    // Campos de personagem/jobs (Respect 2): patente, importante, mortes, job.
+    for (const f of parsed.faccoes) {
+      for (const s of f.soldados ?? []) {
+        if (typeof s.patente !== 'string') s.patente = 'soldado';
+        if (typeof s.importante !== 'boolean') s.importante = s.patente !== 'soldado';
+        if (typeof s.mortes !== 'number') s.mortes = 0;
+        if (s.jobAtual === undefined) s.jobAtual = null;
+        if (typeof s.agiuNoTurno !== 'boolean') s.agiuNoTurno = false;
+      }
+    }
     return parsed;
   } catch (e) {
     console.warn('Falha ao carregar partida:', e);
