@@ -26,6 +26,7 @@ export function soldado(over: Partial<Soldado> = {}): Soldado {
     lealdade: 70,
     traco: 'ganancioso',
     forca: 10,
+    corre: 4,
     armaId: null,
     status: 'ativo',
     faccaoId: 'f1',
@@ -48,6 +49,8 @@ export function bairro(over: Partial<Bairro> = {}): Bairro {
     risco: 30,
     conexoes: [],
     producao: 0,
+    demanda: 16,
+    estabilidade: 1,
     ...over,
   };
 }

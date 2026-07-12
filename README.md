@@ -9,41 +9,41 @@ Sim de império criminoso por turnos (paper/protótipo). Este repositório cont�
 
 ## O que já roda
 
-- **Tela inicial** replicando a estética do protótipo (título dourado stencil,
-  grid de cidades, pixel fonts Bungee + VT323).
-- **1 cidade** (Zona Sul, 2020s) em **grade 3×3 (9 bairros)**: a rua de baixo
-  `Beco do Sol (você) — Vila Torta (neutro) — Morro Alto (IA)` é a disputa clássica;
-  as duas fileiras de cima são território neutro de expansão (economia e manobra).
-- **2 facções**: Os Corvos (jogador) vs Sindicato Rubro (IA agressiva).
-- **Sistema de Jobs por soldado** (estilo *Respect 2*): cada soldado de pé faz **UM
-  job por turno** — **💰 Vender** (faturar na esquina), **🛡 Proteger** (postura
-  defensiva), **🔍 Sondar** (intel de vizinho inimigo), **⚔ Invadir** (liderar o crew
-  num assalto) ou **Mover**. Gestão (armar / recrutar / boca / advogado) depende só
-  de caixa, não gasta job.
-- **Personagens com identidade**: patente (Soldado / Tenente / Capitão), ⭐ peças-chave,
-  contagem de mortes. **Importantes são blindados** em combate — o rank-and-file leva o
-  tiro primeiro; a peça-chave só cai depois que o escudo é dizimado.
-- **Combate** com força dos soldados + dano da arma vs defesa, fator aleatório,
-  traços de personalidade, e baixas (ferido / morto / preso por batida policial).
-- **Consolidação**: quem toma um bairro cava trincheira (proteção) e aguenta o
-  contra-ataque imediato do inimigo.
-- **Economia** por turno (renda dos territórios) + venda ativa dos soldados.
-- **Recrutamento** de soldados — snowball via território.
-- **Produção**: bocas/pontos de venda (níveis 1-3) rendem por turno, são tomadas junto
-  com o bairro e atraem polícia. Trade-off risco × renda.
-- **Sondagem / Heat / polícia**: sondar dá intel (bônus no próximo assalto); calor alto
-  arrisca batida (soldado preso, boca estourada). **Advogado** esfria o calor.
-- **Save/load** automático via AsyncStorage (a partida persiste ao fechar o app).
-- **Vitória**: dominar os 9 bairros. **Derrota**: perder todo o território.
+- **Tela inicial** com estética do protótipo (título dourado stencil, pixel fonts
+  Bungee + VT323) e **escolha de dificuldade** (Normal / Difícil / O.G.).
+- **1 cidade** (Zona Sul) em **grade 4×4 (16 bairros)**: jogador no canto inferior
+  esquerdo, IA no superior direito, miolo neutro pra expansão.
+- **Economia estilo *Respect 2* (o coração do jogo)**: cada território tem uma
+  **demanda por produto** (tier `$`→`$$$$`). Você posiciona **vendedores**; o **Corre
+  (hustle)** deles supre a demanda e gera receita. No fim do turno, o **Relatório de
+  Grana** divide os ganhos: **~55% pagamento da crew, ~25% custo do produto, ~20%
+  lucro**. O **pagamento médio por soldado** decide se o **Respeito** sobe 🟢 ou cai 🔴
+  — crew grande demais pra pouco território derruba o respeito (o jogo se auto-regula).
+  Indicador ▼ (sub-suprido) · ▬ (perfeito) · ▲ (excesso) direto no card do bairro.
+- **Deploy livre** ("Add Soldado"): mande um soldado vender em qualquer território seu,
+  ou **ocupe um neutro de fronteira** vendendo lá (expansão pacífica). Território novo
+  rende **−60%** e estabiliza com o tempo.
+- **Sistema de Jobs por soldado**: cada soldado de pé faz **UM job por turno** —
+  💰 Vender · 🛡 Proteger · 🔍 Sondar · ⚔ Invadir · deploy pra outro território.
+- **Personagens com identidade**: Corre, patente (Soldado / Tenente / Capitão),
+  ⭐ peças-chave, mortes. **Importantes são blindados** em combate (o escudo leva o tiro
+  primeiro).
+- **Combate** força + arma vs defesa, com **consolidação** (quem toma um bairro cava
+  trincheira e segura o contra-ataque). Território protegido segura o empate; desguarnecido cai.
+- **Heat / polícia**: sondar/operações sobem o calor; calor alto arrisca batida
+  (soldado preso). **Advogado** esfria.
+- **Dificuldade**: Normal (IA oportunista) · Difícil (IA agressiva) · O.G. (IA reforçada).
+- **Save/load** automático via AsyncStorage.
+- **Vitória**: dominar os 16 bairros. **Derrota**: perder todo o território.
 
-## Como jogar (jobs + combate)
+## Como jogar (economia + combate)
 
-Cada soldado de pé faz **um job por turno** — o HUD mostra quantos ainda estão
-**Livres**. A tática que vence: **proteja a fronteira, faça economia (vender/boca) na
-retaguarda, concentre um crew forte num bairro e assalte quando tiver vantagem**. O
-atacante tem bônus de iniciativa (1.2), mas **território protegido segura o
-contra-ataque no empate** — pra tomar terreno defendido você precisa de vantagem de
-força. Território desguarnecido cai fácil.
+O motor é a **economia de vendas**: ocupe territórios, ponha vendedores até o Corre
+**bater a demanda** (▬ perfeito), e **pague bem a crew** (controle território
+suficiente pro pagamento médio ficar alto → respeito sobe). Expanda pra neutros
+deployando vendedores; tome território rival na porrada (⚔ Invadir). Cada soldado faz
+**um job por turno** — o HUD mostra quantos estão **Livres**. Território novo rende
+pouco no começo: segure pra estabilizar.
 
 ## Como rodar no celular (Expo Go)
 
@@ -73,13 +73,14 @@ força. Território desguarnecido cai fácil.
 ```
 src/
   types/game.ts        # Cidade, Bairro, Faccao, Soldado, Arma, Turno, GameState
-  data/seed.ts         # partida de teste (mapa, facções, catálogo de armas) + balanceamento
+  data/seed.ts         # partida (mapa 4×4, facções, armas, demandas, dificuldade)
   theme/tokens.ts      # cores e fontes derivadas do protótipo
   engine/
+    economia.ts        # demanda × Corre, relatório de grana, respeito (puro)
     combat.ts          # resolução de combate (puro, RNG injetável)
     selectors.ts       # queries derivadas do estado (puro)
-    actions.ts         # mover / comprar / atacar / renda (puro, imutável)
-    ai.ts              # fase da IA por arquétipo
+    actions.ts         # jobs, deploy, invadir, recrutar (puro, imutável)
+    ai.ts              # fase da IA por arquétipo (economia + militar)
     victory.ts         # checagem de vitória/derrota
   store/gameStore.ts   # store Zustand — orquestra o loop de turno + persiste
   storage/persistence.ts  # save/load AsyncStorage

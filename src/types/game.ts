@@ -28,6 +28,9 @@ export type FaseTurno = 'relatorio' | 'decisao' | 'ia' | 'fim';
 
 export type StatusPartida = 'em_andamento' | 'vitoria' | 'derrota';
 
+/** Dificuldade escolhida no início (afeta a força/agressividade da IA). */
+export type Dificuldade = 'normal' | 'dificil' | 'og';
+
 export interface Arma {
   id: string;
   nome: string;
@@ -45,6 +48,8 @@ export interface Soldado {
   traco: Traco;
   /** Força base de combate (sem contar arma). */
   forca: number;
+  /** Corre / hustle — define quanto o soldado fornece de produto ao Vender. */
+  corre: number;
   /** id da arma equipada, ou null (briga no braço). */
   armaId: string | null;
   status: SoldadoStatus;
@@ -75,8 +80,15 @@ export interface Bairro {
   risco: number;
   /** ids dos bairros adjacentes. */
   conexoes: string[];
-  /** Nível da boca/ponto de venda instalado (0 = nenhum). Rende por turno e atrai polícia. */
+  /** Nível da boca/ponto de venda instalado (0 = nenhum). Legado — ver `demanda`. */
   producao: number;
+  /** Demanda por produto (Corre necessário pra suprir 100%). Define o tier ($..$$$$). */
+  demanda: number;
+  /**
+   * Estabilidade das vendas (0.4..1). Território recém-tomado começa em 0.4
+   * (rende −60%) e sobe por turno até 1.0 — "mantenha pra estabilizar as vendas".
+   */
+  estabilidade: number;
 }
 
 export interface Faccao {
@@ -118,6 +130,32 @@ export interface Turno {
   acoesRestantes: number;
 }
 
+/** Linha do relatório de grana por território. */
+export interface LinhaRelatorio {
+  bairroId: string;
+  nome: string;
+  demanda: number;
+  suprido: number;
+  receita: number;
+  receitaMax: number;
+  /** Penalidade de território novo (0 = estável, 0.6 = recém-tomado). */
+  penalidadeNovo: number;
+}
+
+/** Relatório de grana no fim do turno (estilo "Cash Report" do Respect). */
+export interface RelatorioGrana {
+  turno: number;
+  ganhos: number;
+  pagamentoCrew: number;
+  custoProduto: number;
+  lucro: number;
+  /** Pagamento médio por soldado — define se o respeito sobe ou cai. */
+  pagtoMedio: number;
+  respeitoSubindo: boolean;
+  deltaRespeito: number;
+  linhas: LinhaRelatorio[];
+}
+
 /**
  * Marcador de inteligência: uma facção espionou um bairro e ganha bônus de
  * ataque contra ele até `expiraTurno` (inclusive).
@@ -148,4 +186,8 @@ export interface GameState {
   recrutaSeq: number;
   /** Marcadores de espionagem ativos. */
   intel: IntelMarker[];
+  /** Dificuldade escolhida no início. */
+  dificuldade: Dificuldade;
+  /** Relatório de grana do último fechamento de turno (pra UI mostrar o popup). */
+  ultimoRelatorio: RelatorioGrana | null;
 }

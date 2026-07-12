@@ -10,12 +10,11 @@ import { create } from 'zustand';
 import { criarPartida } from '../data/seed';
 import {
   aplicarBatidaPolicial,
-  aplicarRenda,
   addLog,
   clonar,
   comprarArma as comprarArmaEngine,
-  construirBoca as construirBocaEngine,
   contratarAdvogado as contratarAdvogadoEngine,
+  deployarVendedor as deployarVendedorEngine,
   invadirComSoldado,
   limparIntelExpirado,
   moverSoldado as moverSoldadoEngine,
@@ -26,11 +25,12 @@ import {
   venderNoBairro as venderNoBairroEngine,
   type ResultadoAcao,
 } from '../engine/actions';
+import { aplicarEconomia } from '../engine/economia';
 import { executarTurnoIA } from '../engine/ai';
 import { bairroDe, iasDe, soldadosDisponiveis } from '../engine/selectors';
 import { avaliarStatus } from '../engine/victory';
 import { carregarJogo, salvarJogo } from '../storage/persistence';
-import type { GameState } from '../types/game';
+import type { Dificuldade, GameState } from '../types/game';
 
 /** Deixa visual pra UI animar o resultado de um combate. */
 interface FlashCombate {
@@ -47,15 +47,17 @@ interface GameStore {
   flash: FlashCombate;
   temSave: boolean;
 
-  novoJogo: () => void;
+  novoJogo: (dificuldade?: Dificuldade) => void;
   carregar: () => Promise<boolean>;
   verificarSave: () => Promise<void>;
   sairParaMenu: () => void;
   limparFeedback: () => void;
+  limparRelatorio: () => void;
 
   // Jobs por soldado (gastam o turno do soldado).
   moverSoldado: (soldadoId: string, destinoId: string) => void;
   venderNoBairro: (soldadoId: string) => void;
+  deployarVendedor: (soldadoId: string, destinoId: string) => void;
   protegerBairro: (soldadoId: string) => void;
   sondarBairro: (soldadoId: string, alvoId: string) => void;
   invadirBairro: (soldadoId: string, alvoId: string) => void;
@@ -63,7 +65,6 @@ interface GameStore {
   // Gestão da facção (dependem só de caixa, não gastam job).
   comprarArma: (armaId: string, soldadoId: string) => void;
   recrutarSoldado: (bairroId: string) => void;
-  construirBoca: (bairroId: string) => void;
   contratarAdvogado: () => void;
 
   passarTurno: () => void;
@@ -100,8 +101,8 @@ export const useGameStore = create<GameStore>((set, get) => {
     flash: { cor: null, seq: 0 },
     temSave: false,
 
-    novoJogo() {
-      const game = criarPartida();
+    novoJogo(dificuldade: Dificuldade = 'normal') {
+      const game = criarPartida(dificuldade);
       set({ game, feedback: null, temSave: true });
       void salvarJogo(game);
     },
@@ -128,6 +129,15 @@ export const useGameStore = create<GameStore>((set, get) => {
       set({ feedback: null });
     },
 
+    limparRelatorio() {
+      const game = get().game;
+      if (!game || !game.ultimoRelatorio) return;
+      const novo = clonar(game);
+      novo.ultimoRelatorio = null;
+      set({ game: novo });
+      void salvarJogo(novo);
+    },
+
     moverSoldado(soldadoId, destinoId) {
       const game = ativo();
       if (!game) return;
@@ -138,6 +148,12 @@ export const useGameStore = create<GameStore>((set, get) => {
       const game = ativo();
       if (!game) return;
       aplicar(venderNoBairroEngine(game, game.jogadorId, soldadoId));
+    },
+
+    deployarVendedor(soldadoId, destinoId) {
+      const game = ativo();
+      if (!game) return;
+      aplicar(deployarVendedorEngine(game, game.jogadorId, soldadoId, destinoId));
     },
 
     protegerBairro(soldadoId) {
@@ -177,12 +193,6 @@ export const useGameStore = create<GameStore>((set, get) => {
       aplicar(recrutarSoldadoEngine(game, game.jogadorId, bairroId));
     },
 
-    construirBoca(bairroId) {
-      const game = ativo();
-      if (!game) return;
-      aplicar(construirBocaEngine(game, game.jogadorId, bairroId));
-    },
-
     contratarAdvogado() {
       const game = ativo();
       if (!game) return;
@@ -202,9 +212,9 @@ export const useGameStore = create<GameStore>((set, get) => {
         s = executarTurnoIA(s, ia.id);
       }
 
-      // Polícia age sobre quem está com calor alto; renda + decaimento de calor.
+      // Polícia age sobre quem está com calor alto; economia fecha (grana + respeito).
       aplicarBatidaPolicial(s);
-      aplicarRenda(s);
+      aplicarEconomia(s);
       s.turno.numero += 1;
       // Novo turno do jogador: libera os jobs de todos os soldados dele.
       resetarJobs(s, s.jogadorId);

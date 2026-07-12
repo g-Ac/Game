@@ -190,11 +190,29 @@ export function alvosPossiveis(state: GameState, faccaoId: string): Bairro[] {
   return [...alvos.values()];
 }
 
-/** Destinos válidos pra mover um soldado: bairros próprios adjacentes ao atual. */
+/**
+ * Destinos de realocação de um soldado: QUALQUER bairro próprio (logística livre
+ * dentro do território, estilo Respect), menos o atual.
+ */
 export function destinosDeMovimento(state: GameState, soldado: Soldado): Bairro[] {
-  const atual = bairroDe(state, soldado.bairroId);
-  if (!atual) return [];
-  return atual.conexoes
-    .map((id) => bairroDe(state, id))
-    .filter((b): b is Bairro => !!b && b.dono === soldado.faccaoId);
+  return bairrosDaFaccao(state, soldado.faccaoId).filter((b) => b.id !== soldado.bairroId);
+}
+
+/**
+ * Bairros onde a facção pode pôr um vendedor (deploy): os próprios + os neutros
+ * que fazem fronteira com o território (ocupação pacífica). Rival exige combate.
+ */
+export function alvosDeDeploy(state: GameState, faccaoId: string): Bairro[] {
+  const proprios = bairrosDaFaccao(state, faccaoId);
+  const idsProprios = new Set(proprios.map((b) => b.id));
+  const alvos = new Map<string, Bairro>();
+  for (const b of proprios) alvos.set(b.id, b);
+  for (const b of proprios) {
+    for (const vizinhoId of b.conexoes) {
+      if (idsProprios.has(vizinhoId)) continue;
+      const vizinho = bairroDe(state, vizinhoId);
+      if (vizinho && vizinho.dono === null) alvos.set(vizinho.id, vizinho);
+    }
+  }
+  return [...alvos.values()];
 }

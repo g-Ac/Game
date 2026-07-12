@@ -12,14 +12,7 @@ import {
 } from '../actions';
 import { resolverCombate } from '../combat';
 import { faccaoDe, soldadosDisponiveis, temIntel } from '../selectors';
-import {
-  B_BECO,
-  B_VILA,
-  criarPartida,
-  FATOR_VENDA,
-  JOGADOR_ID,
-  VENDA_POR_BOCA,
-} from '../../data/seed';
+import { B_BECO, B_VILA, criarPartida, JOGADOR_ID } from '../../data/seed';
 import { arma, bairro, rngFixo, rngSeed, soldado } from './helpers';
 
 function p1De(state: ReturnType<typeof criarPartida>) {
@@ -27,13 +20,13 @@ function p1De(state: ReturnType<typeof criarPartida>) {
 }
 
 describe('venderNoBairro', () => {
-  it('fatura na esquina e gasta o job do soldado', () => {
-    const g = criarPartida(); // Beco: valorBase 1200, producao 1, caixa 500
+  it('põe o soldado pra vender e gasta o job (renda vem no fim do turno)', () => {
+    const g = criarPartida();
+    const caixaAntes = faccaoDe(g, JOGADOR_ID)!.caixa;
     const r = venderNoBairro(g, JOGADOR_ID, 'p1');
     expect(r.ok).toBe(true);
-    const fac = faccaoDe(r.state, JOGADOR_ID)!;
-    const ganho = Math.round(1200 * FATOR_VENDA) + 1 * VENDA_POR_BOCA;
-    expect(fac.caixa).toBe(500 + ganho);
+    // Vender não paga na hora — só marca o job. A grana entra na economia do turno.
+    expect(faccaoDe(r.state, JOGADOR_ID)!.caixa).toBe(caixaAntes);
     const p1 = p1De(r.state);
     expect(p1.agiuNoTurno).toBe(true);
     expect(p1.jobAtual).toBe('vender');

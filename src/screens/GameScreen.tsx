@@ -2,23 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cores, espaco, fontes } from '../theme/tokens';
-import {
-  CALOR_LIMIAR_BATIDA,
-  CUSTO_ADVOGADO,
-  CUSTO_BOCA,
-  CUSTO_RECRUTA,
-  MAX_BOCA_NIVEL,
-  RENDA_POR_BOCA,
-} from '../data/seed';
+import { CALOR_LIMIAR_BATIDA, CUSTO_ADVOGADO, CUSTO_RECRUTA } from '../data/seed';
+import { cifraoDoBairro, suprimentoDoBairro } from '../engine/economia';
 import { useGameStore } from '../store/gameStore';
 import {
+  alvosDeDeploy,
   alvosDeSoldado,
   alvosPossiveis,
   armaDe,
   ataqueDoBairroEstimado,
   bairroDe,
   defesaEstimada,
-  destinosDeMovimento,
   faccaoDe,
   jogador as jogadorSel,
   podeAgir,
@@ -31,6 +25,7 @@ import { FlashOverlay } from '../components/FlashOverlay';
 import { GameOverOverlay } from '../components/GameOverOverlay';
 import { LogPanel } from '../components/LogPanel';
 import { LojaModal } from '../components/LojaModal';
+import { RelatorioModal } from '../components/RelatorioModal';
 import { SoldadoRow } from '../components/SoldadoRow';
 import { StatPill } from '../components/StatPill';
 import { TurnoBanner } from '../components/TurnoBanner';
@@ -59,10 +54,10 @@ function jobLabel(j: SoldadoJob): string {
   return j ? JOB_LABEL[j] : 'parado';
 }
 
-/** Quebra a lista de bairros (row-major) em fileiras de 3 pra desenhar a grade. */
+/** Quebra a lista de bairros (row-major) em fileiras de 4 pra desenhar a grade. */
 function linhasDoMapa<T>(bairros: T[]): T[][] {
   const linhas: T[][] = [];
-  for (let i = 0; i < bairros.length; i += 3) linhas.push(bairros.slice(i, i + 3));
+  for (let i = 0; i < bairros.length; i += 4) linhas.push(bairros.slice(i, i + 4));
   return linhas;
 }
 
@@ -71,14 +66,14 @@ export function GameScreen({ navigation }: GameProps) {
   const game = useGameStore((s) => s.game);
   const feedback = useGameStore((s) => s.feedback);
   const limparFeedback = useGameStore((s) => s.limparFeedback);
-  const moverSoldado = useGameStore((s) => s.moverSoldado);
+  const limparRelatorio = useGameStore((s) => s.limparRelatorio);
   const venderNoBairro = useGameStore((s) => s.venderNoBairro);
+  const deployarVendedor = useGameStore((s) => s.deployarVendedor);
   const protegerBairro = useGameStore((s) => s.protegerBairro);
   const sondarBairro = useGameStore((s) => s.sondarBairro);
   const invadirBairro = useGameStore((s) => s.invadirBairro);
   const comprarArma = useGameStore((s) => s.comprarArma);
   const recrutarSoldado = useGameStore((s) => s.recrutarSoldado);
-  const construirBoca = useGameStore((s) => s.construirBoca);
   const contratarAdvogado = useGameStore((s) => s.contratarAdvogado);
   const passarTurno = useGameStore((s) => s.passarTurno);
   const novoJogo = useGameStore((s) => s.novoJogo);
@@ -89,14 +84,13 @@ export function GameScreen({ navigation }: GameProps) {
   const [selSoldadoId, setSelSoldadoId] = useState<string | null>(null);
   const [lojaAberta, setLojaAberta] = useState(false);
 
-  // Limpa o feedback automaticamente após um tempo.
   useEffect(() => {
     if (!feedback) return;
     const t = setTimeout(() => limparFeedback(), 2600);
     return () => clearTimeout(t);
   }, [feedback, limparFeedback]);
 
-  // Shake da tela a cada combate (dispara pelo contador de flash do store).
+  // Shake da tela a cada combate.
   const shakeAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (flash.seq === 0) return;
@@ -109,7 +103,6 @@ export function GameScreen({ navigation }: GameProps) {
     ]).start();
   }, [flash.seq, shakeAnim]);
 
-  // Entrada animada do feedback (aparece deslizando/fade em vez de piscar).
   const fbOp = useRef(new Animated.Value(0)).current;
   const fbY = useRef(new Animated.Value(6)).current;
   useEffect(() => {
@@ -138,16 +131,17 @@ export function GameScreen({ navigation }: GameProps) {
 
   const jog = jogadorSel(game);
   const selBairro = selBairroId ? bairroDe(game, selBairroId) : undefined;
-  const selSoldado = selSoldadoId
-    ? jog.soldados.find((s) => s.id === selSoldadoId) ?? null
-    : null;
+  const selSoldado = selSoldadoId ? jog.soldados.find((s) => s.id === selSoldadoId) ?? null : null;
 
   const bairroEhDoJogador = selBairro?.dono === game.jogadorId;
 
-  // Alvos que ESTE soldado pode atacar/sondar (bairros inimigos vizinhos do dele).
   const alvosSoldado = selSoldado ? alvosDeSoldado(game, selSoldado) : [];
-  const destinos = selSoldado ? destinosDeMovimento(game, selSoldado) : [];
   const soldadoLivre = selSoldado ? podeAgir(selSoldado) : false;
+  // Alvos de deploy (vender) que NÃO são o bairro atual do soldado.
+  const deployTargets =
+    selSoldado && soldadoLivre
+      ? alvosDeDeploy(game, game.jogadorId).filter((b) => b.id !== selSoldado.bairroId)
+      : [];
 
   function selecionarBairro(id: string) {
     setSelBairroId(id);
@@ -166,276 +160,266 @@ export function GameScreen({ navigation }: GameProps) {
 
   return (
     <View style={styles.root}>
-      <Animated.View
-        style={[styles.screen, { paddingTop: insets.top, transform: [{ translateX: shakeX }] }]}
-      >
-      <ScrollView
-        contentContainerStyle={[styles.conteudo, { paddingBottom: insets.bottom + 96 }]}
-      >
-        {/* Cabeçalho de turno */}
-        <View style={styles.topbar}>
-          <View>
-            <Text style={styles.turnoTxt}>TURNO {game.turno.numero}</Text>
-            <Text style={styles.cidadeTxt}>
-              {game.cidade.nome} · {game.cidade.era}
-            </Text>
-          </View>
-          <StatPill label="Livres" valor={game.turno.acoesRestantes} cor={cores.gold1} />
-        </View>
-
-        {/* Stats da facção */}
-        <View style={styles.stats}>
-          <StatPill label="Caixa" valor={jog.caixa} prefixo="$" cor={cores.moneyLight} />
-          <StatPill label="Respeito" valor={jog.respeito} cor={cores.gold1} />
-          <StatPill
-            label="Calor"
-            valor={jog.calor}
-            cor={jog.calor >= CALOR_LIMIAR_BATIDA ? cores.danger : cores.bloodLight}
-          />
-        </View>
-
-        {/* Advogado — esfria o calor (aparece com risco de batida) */}
-        {jog.calor > 0 ? (
-          <View style={styles.advogadoRow}>
-            {jog.calor >= CALOR_LIMIAR_BATIDA ? (
-              <Text style={styles.alerta}>⚠ Calor alto — risco de batida policial!</Text>
-            ) : (
-              <Text style={styles.advogadoDica}>Calor atrai a polícia.</Text>
-            )}
-            <Botao
-              titulo={`Advogado ($${CUSTO_ADVOGADO})`}
-              variante="neutro"
-              disabled={jog.caixa < CUSTO_ADVOGADO}
-              onPress={contratarAdvogado}
-              style={styles.advogadoBtn}
-            />
-          </View>
-        ) : null}
-
-        {/* Mapa — grade em fileiras de 3 */}
-        <Text style={styles.secao}>TERRITÓRIOS</Text>
-        <View style={styles.mapaGrid}>
-          {linhasDoMapa(game.cidade.bairros).map((linha, i) => (
-            <View key={i} style={styles.mapaRow}>
-              {linha.map((b) => {
-                const dono = b.dono ? faccaoDe(game, b.dono) : undefined;
-                const num = b.dono ? soldadosNoBairro(game, b.dono, b.id).filter(dePe).length : 0;
-                return (
-                  <BairroCard
-                    key={b.id}
-                    bairro={b}
-                    donoNome={dono?.nome ?? null}
-                    donoCor={dono?.cor ?? cores.neutral}
-                    numSoldados={num}
-                    selecionado={selBairroId === b.id}
-                    atacavel={alvos.has(b.id)}
-                    onPress={() => selecionarBairro(b.id)}
-                  />
-                );
-              })}
-            </View>
-          ))}
-        </View>
-
-        {/* Painel do bairro selecionado */}
-        {selBairro ? (
-          <View style={styles.painel}>
-            <View style={styles.painelHeader}>
-              <Text style={styles.painelNome}>{selBairro.nome}</Text>
-              <Text style={styles.painelDono}>
-                {selBairro.dono ? faccaoDe(game, selBairro.dono)?.nome : 'Neutro'}
+      <Animated.View style={[styles.screen, { paddingTop: insets.top, transform: [{ translateX: shakeX }] }]}>
+        <ScrollView contentContainerStyle={[styles.conteudo, { paddingBottom: insets.bottom + 96 }]}>
+          {/* Cabeçalho */}
+          <View style={styles.topbar}>
+            <View>
+              <Text style={styles.turnoTxt}>TURNO {game.turno.numero}</Text>
+              <Text style={styles.cidadeTxt}>
+                {game.cidade.nome} · {game.dificuldade.toUpperCase()}
               </Text>
             </View>
+            <StatPill label="Livres" valor={game.turno.acoesRestantes} cor={cores.gold1} />
+          </View>
 
-            {/* Gestão (só em bairro seu) — não gasta job, só caixa */}
-            {bairroEhDoJogador ? (
-              <>
-                <Botao
-                  titulo={`+ Recrutar soldado ($${CUSTO_RECRUTA})`}
-                  variante="primario"
-                  disabled={jog.caixa < CUSTO_RECRUTA}
-                  onPress={() => recrutarSoldado(selBairro.id)}
-                />
-                <Botao
-                  titulo={
-                    selBairro.producao >= MAX_BOCA_NIVEL
-                      ? `Boca no máximo (nível ${selBairro.producao})`
-                      : `▲ Montar boca ($${CUSTO_BOCA}, +$${RENDA_POR_BOCA}/turno)`
-                  }
-                  variante="primario"
-                  disabled={jog.caixa < CUSTO_BOCA || selBairro.producao >= MAX_BOCA_NIVEL}
-                  onPress={() => construirBoca(selBairro.id)}
-                />
-              </>
-            ) : (
-              // Bairro inimigo/neutro: leitura de defesa (invadir sai do painel do soldado).
-              <View style={styles.ataqueBox}>
-                <Text style={styles.previewTxt}>
-                  Defesa estimada <Text style={styles.previewNum}>{defesaEstimada(game, selBairro.id)}</Text>
+          {/* Stats */}
+          <View style={styles.stats}>
+            <StatPill label="Caixa" valor={jog.caixa} prefixo="$" cor={cores.moneyLight} />
+            <StatPill label="Respeito" valor={jog.respeito} cor={cores.gold1} />
+            <StatPill
+              label="Calor"
+              valor={jog.calor}
+              cor={jog.calor >= CALOR_LIMIAR_BATIDA ? cores.danger : cores.bloodLight}
+            />
+          </View>
+
+          {jog.calor > 0 ? (
+            <View style={styles.advogadoRow}>
+              {jog.calor >= CALOR_LIMIAR_BATIDA ? (
+                <Text style={styles.alerta}>⚠ Calor alto — risco de batida policial!</Text>
+              ) : (
+                <Text style={styles.advogadoDica}>Calor atrai a polícia.</Text>
+              )}
+              <Botao
+                titulo={`Advogado ($${CUSTO_ADVOGADO})`}
+                variante="neutro"
+                disabled={jog.caixa < CUSTO_ADVOGADO}
+                onPress={contratarAdvogado}
+                style={styles.advogadoBtn}
+              />
+            </View>
+          ) : null}
+
+          {/* Mapa 4×4 */}
+          <Text style={styles.secao}>TERRITÓRIOS</Text>
+          <View style={styles.mapaGrid}>
+            {linhasDoMapa(game.cidade.bairros).map((linha, i) => (
+              <View key={i} style={styles.mapaRow}>
+                {linha.map((b) => {
+                  const dono = b.dono ? faccaoDe(game, b.dono) : undefined;
+                  const num = b.dono ? soldadosNoBairro(game, b.dono, b.id).filter(dePe).length : 0;
+                  return (
+                    <BairroCard
+                      key={b.id}
+                      bairro={b}
+                      donoNome={dono?.nome ?? null}
+                      donoCor={dono?.cor ?? cores.neutral}
+                      numSoldados={num}
+                      suprido={b.dono === game.jogadorId ? suprimentoDoBairro(game, b) : 0}
+                      ehDoJogador={b.dono === game.jogadorId}
+                      selecionado={selBairroId === b.id}
+                      atacavel={alvos.has(b.id)}
+                      onPress={() => selecionarBairro(b.id)}
+                    />
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+
+          {/* Painel do bairro */}
+          {selBairro ? (
+            <View style={styles.painel}>
+              <View style={styles.painelHeader}>
+                <Text style={styles.painelNome}>
+                  {selBairro.nome} <Text style={styles.painelTier}>{cifraoDoBairro(selBairro)}</Text>
                 </Text>
-                <Text style={styles.dicaMini}>
-                  Selecione um soldado seu num bairro vizinho e use ⚔ Invadir.
+                <Text style={styles.painelDono}>
+                  {selBairro.dono ? faccaoDe(game, selBairro.dono)?.nome : 'Neutro'}
                 </Text>
               </View>
-            )}
 
-            {/* Soldados no bairro */}
-            {soldadosDoBairro.length > 0 ? (
-              <View style={styles.tropasBox}>
-                <Text style={styles.subsecao}>TROPAS AQUI</Text>
-                {soldadosDoBairro.map((s) => (
-                  <SoldadoRow
-                    key={s.id}
-                    soldado={s}
-                    arma={armaDe(game, s.armaId)}
-                    selecionado={selSoldadoId === s.id}
-                    selecionavel={bairroEhDoJogador && dePe(s)}
-                    onPress={() => setSelSoldadoId((cur) => (cur === s.id ? null : s.id))}
-                  />
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.vazioBairro}>Sem tropas neste bairro.</Text>
-            )}
-
-            {/* Painel do soldado selecionado: ESCOLHA O JOB */}
-            {selSoldado ? (
-              <View style={styles.acoesSoldado}>
-                <View style={styles.soldadoHead}>
-                  <Text style={styles.soldadoNome}>
-                    {selSoldado.importante ? '⭐ ' : ''}
-                    {selSoldado.nome}
+              {bairroEhDoJogador ? (
+                <View style={styles.economiaBox}>
+                  <Text style={styles.economiaTxt}>
+                    Vendas: <Text style={styles.previewNum}>{suprimentoDoBairro(game, selBairro)}</Text> /{' '}
+                    {selBairro.demanda} corre
+                    {selBairro.estabilidade < 1 ? (
+                      <Text style={styles.novoTag}>  · território novo −{Math.round((1 - selBairro.estabilidade) * 100)}%</Text>
+                    ) : null}
                   </Text>
-                  <Text style={styles.soldadoMeta}>
-                    {PATENTE_LABEL[selSoldado.patente]} · fç {selSoldado.forca} · {selSoldado.mortes}{' '}
-                    {selSoldado.mortes === 1 ? 'morte' : 'mortes'}
+                  <Botao
+                    titulo={`+ Recrutar ($${CUSTO_RECRUTA})`}
+                    variante="primario"
+                    disabled={jog.caixa < CUSTO_RECRUTA}
+                    onPress={() => recrutarSoldado(selBairro.id)}
+                  />
+                </View>
+              ) : (
+                <View style={styles.ataqueBox}>
+                  <Text style={styles.previewTxt}>
+                    Demanda {selBairro.demanda} · Defesa{' '}
+                    <Text style={styles.previewNum}>{defesaEstimada(game, selBairro.id)}</Text>
+                  </Text>
+                  <Text style={styles.dicaMini}>
+                    {selBairro.dono
+                      ? 'Território rival — selecione um soldado vizinho e ⚔ Invadir.'
+                      : 'Neutro — selecione um soldado seu e mande vender aqui pra ocupar.'}
                   </Text>
                 </View>
+              )}
 
-                {soldadoLivre ? (
-                  <>
-                    <Text style={styles.jobLabel}>ESCOLHA O JOB</Text>
-                    <View style={styles.jobGrid}>
-                      <Botao
-                        titulo="💰 Vender"
-                        variante="primario"
-                        onPress={() => venderNoBairro(selSoldado.id)}
-                        style={styles.jobBtn}
-                      />
-                      <Botao
-                        titulo="🛡 Proteger"
-                        variante="neutro"
-                        onPress={() => protegerBairro(selSoldado.id)}
-                        style={styles.jobBtn}
-                      />
-                    </View>
+              {/* Soldados no bairro */}
+              {soldadosDoBairro.length > 0 ? (
+                <View style={styles.tropasBox}>
+                  <Text style={styles.subsecao}>TROPAS AQUI</Text>
+                  {soldadosDoBairro.map((s) => (
+                    <SoldadoRow
+                      key={s.id}
+                      soldado={s}
+                      arma={armaDe(game, s.armaId)}
+                      selecionado={selSoldadoId === s.id}
+                      selecionavel={bairroEhDoJogador && dePe(s)}
+                      onPress={() => setSelSoldadoId((cur) => (cur === s.id ? null : s.id))}
+                    />
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.vazioBairro}>Sem tropas neste bairro.</Text>
+              )}
 
-                    {/* Invadir / Sondar por alvo vizinho */}
-                    {alvosSoldado.map((alvo) => {
-                      const atk = ataqueDoBairroEstimado(
-                        game,
-                        game.jogadorId,
-                        selSoldado.bairroId,
-                        alvo.id,
-                      );
-                      const def = defesaEstimada(game, alvo.id);
-                      const intel = temIntel(game, game.jogadorId, alvo.id);
-                      return (
-                        <View key={alvo.id} style={styles.alvoBox}>
-                          <Text style={styles.previewTxt}>
-                            {alvo.nome}: ataque <Text style={styles.previewNum}>{atk}</Text> vs defesa{' '}
-                            <Text style={styles.previewNum}>{def}</Text>
-                          </Text>
-                          {intel ? <Text style={styles.intelTag}>🎯 Intel ativo — ataque reforçado</Text> : null}
-                          <View style={styles.jobGrid}>
-                            <Botao
-                              titulo="⚔ Invadir"
-                              variante="ataque"
-                              disabled={atk <= 0}
-                              onPress={() => invadirBairro(selSoldado.id, alvo.id)}
-                              style={styles.jobBtn}
-                            />
-                            <Botao
-                              titulo="🔍 Sondar"
-                              variante="neutro"
-                              disabled={intel}
-                              onPress={() => sondarBairro(selSoldado.id, alvo.id)}
-                              style={styles.jobBtn}
-                            />
+              {/* Painel do soldado: ESCOLHA O JOB */}
+              {selSoldado ? (
+                <View style={styles.acoesSoldado}>
+                  <View style={styles.soldadoHead}>
+                    <Text style={styles.soldadoNome}>
+                      {selSoldado.importante ? '⭐ ' : ''}
+                      {selSoldado.nome}
+                    </Text>
+                    <Text style={styles.soldadoMeta}>
+                      {PATENTE_LABEL[selSoldado.patente]} · corre {selSoldado.corre} · fç {selSoldado.forca}
+                    </Text>
+                  </View>
+
+                  {soldadoLivre ? (
+                    <>
+                      <Text style={styles.jobLabel}>ESCOLHA O JOB</Text>
+                      <View style={styles.jobGrid}>
+                        <Botao
+                          titulo="💰 Vender aqui"
+                          variante="primario"
+                          onPress={() => venderNoBairro(selSoldado.id)}
+                          style={styles.jobBtn}
+                        />
+                        <Botao
+                          titulo="🛡 Proteger"
+                          variante="neutro"
+                          onPress={() => protegerBairro(selSoldado.id)}
+                          style={styles.jobBtn}
+                        />
+                      </View>
+
+                      {/* Invadir / Sondar por alvo vizinho rival */}
+                      {alvosSoldado.map((alvo) => {
+                        const atk = ataqueDoBairroEstimado(game, game.jogadorId, selSoldado.bairroId, alvo.id);
+                        const def = defesaEstimada(game, alvo.id);
+                        const intel = temIntel(game, game.jogadorId, alvo.id);
+                        const rival = alvo.dono !== null;
+                        return (
+                          <View key={alvo.id} style={styles.alvoBox}>
+                            <Text style={styles.previewTxt}>
+                              {alvo.nome}{' '}
+                              {rival ? (
+                                <>
+                                  : ataque <Text style={styles.previewNum}>{atk}</Text> vs def{' '}
+                                  <Text style={styles.previewNum}>{def}</Text>
+                                </>
+                              ) : (
+                                <Text style={styles.dicaMini}>(neutro)</Text>
+                              )}
+                            </Text>
+                            {intel ? <Text style={styles.intelTag}>🎯 Intel ativo</Text> : null}
+                            {rival ? (
+                              <View style={styles.jobGrid}>
+                                <Botao
+                                  titulo="⚔ Invadir"
+                                  variante="ataque"
+                                  disabled={atk <= 0}
+                                  onPress={() => invadirBairro(selSoldado.id, alvo.id)}
+                                  style={styles.jobBtn}
+                                />
+                                <Botao
+                                  titulo="🔍 Sondar"
+                                  variante="neutro"
+                                  disabled={intel}
+                                  onPress={() => sondarBairro(selSoldado.id, alvo.id)}
+                                  style={styles.jobBtn}
+                                />
+                              </View>
+                            ) : null}
                           </View>
-                        </View>
-                      );
-                    })}
+                        );
+                      })}
 
-                    {/* Mover */}
-                    {destinos.length > 0 ? (
-                      <>
-                        <Text style={styles.moverLabel}>Mover para:</Text>
-                        <View style={styles.moverBtns}>
-                          {destinos.map((d) => (
-                            <Botao
-                              key={d.id}
-                              titulo={`→ ${d.nome}`}
-                              variante="neutro"
-                              onPress={() => moverSoldado(selSoldado.id, d.id)}
-                              style={styles.moverBtn}
-                            />
-                          ))}
-                        </View>
-                      </>
-                    ) : null}
+                      {/* Deploy: mandar vender em outro território (seu) ou ocupar neutro */}
+                      {deployTargets.length > 0 ? (
+                        <>
+                          <Text style={styles.moverLabel}>Mandar vender em:</Text>
+                          <View style={styles.moverBtns}>
+                            {deployTargets.map((t) => (
+                              <Botao
+                                key={t.id}
+                                titulo={t.dono === null ? `⚑ Ocupar ${t.nome}` : `→ ${t.nome}`}
+                                variante="neutro"
+                                onPress={() => deployarVendedor(selSoldado.id, t.id)}
+                                style={styles.moverBtn}
+                              />
+                            ))}
+                          </View>
+                        </>
+                      ) : null}
 
-                    <Botao titulo="🔫 Arsenal / armar" variante="fantasma" onPress={abrirArsenal} />
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.jaAgiu}>Já agiu neste turno ({jobLabel(selSoldado.jobAtual)}).</Text>
-                    <Botao titulo="🔫 Arsenal / armar" variante="fantasma" onPress={abrirArsenal} />
-                  </>
-                )}
-              </View>
-            ) : bairroEhDoJogador ? (
-              <Text style={styles.dica}>Toque num soldado pra dar um job.</Text>
-            ) : null}
+                      <Botao titulo="🔫 Arsenal / armar" variante="fantasma" onPress={abrirArsenal} />
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.jaAgiu}>Já agiu neste turno ({jobLabel(selSoldado.jobAtual)}).</Text>
+                      <Botao titulo="🔫 Arsenal / armar" variante="fantasma" onPress={abrirArsenal} />
+                    </>
+                  )}
+                </View>
+              ) : bairroEhDoJogador ? (
+                <Text style={styles.dica}>Toque num soldado pra dar um job.</Text>
+              ) : null}
+            </View>
+          ) : (
+            <Text style={styles.dica}>Toque num território pra ver detalhes e agir.</Text>
+          )}
+
+          <LogPanel log={game.log} />
+        </ScrollView>
+
+        {/* Barra fixa inferior */}
+        <View style={[styles.rodape, { paddingBottom: insets.bottom + espaco.sm }]}>
+          {feedback ? (
+            <Animated.Text
+              style={[styles.feedback, { opacity: fbOp, transform: [{ translateY: fbY }] }]}
+              numberOfLines={2}
+            >
+              {feedback}
+            </Animated.Text>
+          ) : null}
+          <View style={styles.rodapeBtns}>
+            <Botao titulo="Menu" variante="fantasma" onPress={() => navigation.navigate('Home')} style={styles.btnMenu} />
+            <Botao titulo="PASSAR TURNO ▶" variante="primario" onPress={passarTurno} style={styles.btnTurno} />
           </View>
-        ) : (
-          <Text style={styles.dica}>Toque num território pra ver detalhes e agir.</Text>
-        )}
-
-        {/* Relatório */}
-        <LogPanel log={game.log} />
-      </ScrollView>
-
-      {/* Barra fixa inferior */}
-      <View style={[styles.rodape, { paddingBottom: insets.bottom + espaco.sm }]}>
-        {feedback ? (
-          <Animated.Text
-            style={[styles.feedback, { opacity: fbOp, transform: [{ translateY: fbY }] }]}
-            numberOfLines={2}
-          >
-            {feedback}
-          </Animated.Text>
-        ) : null}
-        <View style={styles.rodapeBtns}>
-          <Botao
-            titulo="Menu"
-            variante="fantasma"
-            onPress={() => navigation.navigate('Home')}
-            style={styles.btnMenu}
-          />
-          <Botao
-            titulo="PASSAR TURNO ▶"
-            variante="primario"
-            onPress={passarTurno}
-            style={styles.btnTurno}
-          />
         </View>
-      </View>
       </Animated.View>
 
-      {/* Overlays de animação (não pegam toque) */}
       <FlashOverlay seq={flash.seq} cor={flash.cor} />
       <TurnoBanner turno={game.turno.numero} />
+      <RelatorioModal relatorio={game.ultimoRelatorio} onFechar={limparRelatorio} />
 
       <LojaModal
         visible={lojaAberta}
@@ -454,7 +438,7 @@ export function GameScreen({ navigation }: GameProps) {
         respeito={jog.respeito}
         turno={game.turno.numero}
         onJogarDeNovo={() => {
-          novoJogo();
+          novoJogo(game.dificuldade);
           setSelBairroId(null);
           setSelSoldadoId(null);
         }}
@@ -480,24 +464,13 @@ const styles = StyleSheet.create({
 
   stats: { flexDirection: 'row', gap: espaco.sm },
 
-  advogadoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: espaco.sm,
-  },
+  advogadoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: espaco.sm },
   alerta: { flex: 1, fontFamily: fontes.corpo, fontSize: 15, color: cores.danger },
   advogadoDica: { flex: 1, fontFamily: fontes.corpo, fontSize: 14, color: cores.muted },
   advogadoBtn: { minWidth: 130 },
   intelTag: { fontFamily: fontes.corpo, fontSize: 14, color: cores.gold1, textAlign: 'center' },
 
-  secao: {
-    fontFamily: fontes.titulo,
-    fontSize: 12,
-    color: cores.muted,
-    letterSpacing: 2,
-    marginTop: espaco.xs,
-  },
+  secao: { fontFamily: fontes.titulo, fontSize: 12, color: cores.muted, letterSpacing: 2, marginTop: espaco.xs },
   mapaGrid: { gap: espaco.sm },
   mapaRow: { flexDirection: 'row', gap: espaco.sm },
 
@@ -511,49 +484,28 @@ const styles = StyleSheet.create({
   },
   painelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   painelNome: { fontFamily: fontes.titulo, fontSize: 16, color: cores.cream },
+  painelTier: { fontFamily: fontes.corpo, fontSize: 15, color: cores.moneyLight },
   painelDono: { fontFamily: fontes.corpo, fontSize: 15, color: cores.muted },
 
-  ataqueBox: {
-    backgroundColor: cores.bg,
-    borderRadius: 3,
-    padding: espaco.sm,
-    gap: espaco.xs,
-  },
-  alvoBox: {
-    backgroundColor: cores.bg,
-    borderRadius: 3,
-    padding: espaco.sm,
-    gap: espaco.sm,
-  },
+  economiaBox: { backgroundColor: cores.bg, borderRadius: 3, padding: espaco.sm, gap: espaco.sm },
+  economiaTxt: { fontFamily: fontes.corpo, fontSize: 15, color: cores.cream },
+  novoTag: { color: cores.danger, fontSize: 13 },
+
+  ataqueBox: { backgroundColor: cores.bg, borderRadius: 3, padding: espaco.sm, gap: espaco.xs },
+  alvoBox: { backgroundColor: cores.bg, borderRadius: 3, padding: espaco.sm, gap: espaco.sm },
   previewTxt: { fontFamily: fontes.corpo, fontSize: 16, color: cores.cream, textAlign: 'center' },
   previewNum: { color: cores.gold1 },
   dicaMini: { fontFamily: fontes.corpo, fontSize: 13, color: cores.mutedDim, textAlign: 'center' },
 
   tropasBox: { gap: espaco.xs },
-  subsecao: {
-    fontFamily: fontes.titulo,
-    fontSize: 10,
-    color: cores.mutedDim,
-    letterSpacing: 2,
-    marginBottom: espaco.xs,
-  },
+  subsecao: { fontFamily: fontes.titulo, fontSize: 10, color: cores.mutedDim, letterSpacing: 2, marginBottom: espaco.xs },
   vazioBairro: { fontFamily: fontes.corpo, fontSize: 15, color: cores.mutedDim },
 
-  acoesSoldado: {
-    borderTopWidth: 1,
-    borderTopColor: cores.cardBorder,
-    paddingTop: espaco.sm,
-    gap: espaco.sm,
-  },
+  acoesSoldado: { borderTopWidth: 1, borderTopColor: cores.cardBorder, paddingTop: espaco.sm, gap: espaco.sm },
   soldadoHead: { gap: 2 },
   soldadoNome: { fontFamily: fontes.titulo, fontSize: 15, color: cores.cream },
   soldadoMeta: { fontFamily: fontes.corpo, fontSize: 14, color: cores.muted },
-  jobLabel: {
-    fontFamily: fontes.titulo,
-    fontSize: 11,
-    color: cores.gold1,
-    letterSpacing: 2,
-  },
+  jobLabel: { fontFamily: fontes.titulo, fontSize: 11, color: cores.gold1, letterSpacing: 2 },
   jobGrid: { flexDirection: 'row', gap: espaco.sm },
   jobBtn: { flex: 1 },
   jaAgiu: { fontFamily: fontes.corpo, fontSize: 15, color: cores.mutedDim, fontStyle: 'italic' },
@@ -575,12 +527,7 @@ const styles = StyleSheet.create({
     paddingTop: espaco.sm,
     gap: espaco.xs,
   },
-  feedback: {
-    fontFamily: fontes.corpo,
-    fontSize: 15,
-    color: cores.gold1,
-    textAlign: 'center',
-  },
+  feedback: { fontFamily: fontes.corpo, fontSize: 15, color: cores.gold1, textAlign: 'center' },
   rodapeBtns: { flexDirection: 'row', gap: espaco.sm },
   btnMenu: { flex: 1 },
   btnTurno: { flex: 2 },

@@ -7,30 +7,32 @@
 import {
   CALOR_LIMIAR_BATIDA,
   CUSTO_ADVOGADO,
-  CUSTO_BOCA,
   CUSTO_ESPIONAGEM,
   CUSTO_RECRUTA,
-  MAX_BOCA_NIVEL,
 } from '../data/seed';
 import {
   atacarBairro,
   comprarArma,
-  construirBoca,
   contratarAdvogado,
+  deployarVendedor,
   espionarBairro,
   moverSoldado,
   recrutarSoldado,
+  venderNoBairro,
   type ResultadoAcao,
 } from './actions';
 import { participaDeCombate, type Rng } from './combat';
 import {
+  alvosDeDeploy,
   alvosPossiveis,
   armaDe,
   bairrosDaFaccao,
   defesaEstimada,
   faccaoDe,
   forcaDeAtaque,
+  podeAgir,
 } from './selectors';
+import { suprimentoDoBairro } from './economia';
 import type { Arquetipo, GameState } from '../types/game';
 
 interface ConfigArquetipo {
@@ -47,9 +49,9 @@ interface ConfigArquetipo {
 }
 
 const CONFIG: Record<Arquetipo, ConfigArquetipo> = {
-  agressivo: { razaoAtaque: 1.0, reservaCaixa: 100, pesoJogador: 1.4, pesoNeutro: 1.0, tetoExercito: 8 },
-  paciente: { razaoAtaque: 1.4, reservaCaixa: 400, pesoJogador: 0.8, pesoNeutro: 1.3, tetoExercito: 6 },
-  oportunista: { razaoAtaque: 1.15, reservaCaixa: 150, pesoJogador: 0.7, pesoNeutro: 1.5, tetoExercito: 6 },
+  agressivo: { razaoAtaque: 1.0, reservaCaixa: 2000, pesoJogador: 1.4, pesoNeutro: 1.0, tetoExercito: 9 },
+  paciente: { razaoAtaque: 1.4, reservaCaixa: 5000, pesoJogador: 0.8, pesoNeutro: 1.3, tetoExercito: 7 },
+  oportunista: { razaoAtaque: 1.15, reservaCaixa: 3500, pesoJogador: 0.7, pesoNeutro: 1.5, tetoExercito: 7 },
 };
 
 /** Tenta uma compra de arma pro soldado mais fraco. Devolve estado (mutado ou não). */
@@ -109,24 +111,56 @@ function recrutarSePossivel(
 }
 
 /**
- * Investe em bocas quando há caixa folgada (acima da reserva + um colchão),
- * priorizando o bairro de maior valor ainda abaixo do teto de produção.
+ * Distribui os jobs dos soldados ociosos da IA:
+ *   1. Expande pra até 2 neutros de fronteira por turno (ocupa + vende).
+ *   2. Fronteira com inimigo = proteger; resto = vender no bairro atual.
+ * Também tenta mover vendedores pra territórios sub-supridos. Muta refs de `state`.
  */
-function construirBocaSePossivel(state: GameState, faccaoId: string, cfg: ConfigArquetipo): GameState {
-  const fac = faccaoDe(state, faccaoId);
-  if (!fac) return state;
-  // Não sobe o calor montando boca quando já está no vermelho.
-  if (fac.calor >= CALOR_LIMIAR_BATIDA) return state;
-  // Colchão de segurança: só investe em boca se sobra bem acima da reserva.
-  if (fac.caixa - cfg.reservaCaixa < CUSTO_BOCA + 200) return state;
+function distribuirJobsIA(state: GameState, faccaoId: string, rng: Rng): GameState {
+  let atual = state;
 
-  const alvo = bairrosDaFaccao(state, faccaoId)
-    .filter((b) => b.producao < MAX_BOCA_NIVEL)
-    .sort((a, b) => b.valorBase - a.valorBase)[0];
-  if (!alvo) return state;
+  // Expansão pacífica pra neutros (prioriza maior demanda).
+  let expansoes = 0;
+  let guard = 0;
+  while (expansoes < 2 && guard++ < 20) {
+    const fac = faccaoDe(atual, faccaoId);
+    if (!fac) break;
+    const livre = fac.soldados.find(podeAgir);
+    if (!livre) break;
+    const neutro = alvosDeDeploy(atual, faccaoId)
+      .filter((b) => b.dono === null)
+      .sort((a, b) => b.demanda - a.demanda)[0];
+    if (!neutro) break;
+    const r = deployarVendedor(atual, faccaoId, livre.id, neutro.id);
+    if (!r.ok) break;
+    atual = r.state;
+    expansoes += 1;
+  }
 
-  const r = construirBoca(state, faccaoId, alvo.id);
-  return r.ok ? r.state : state;
+  // Resto dos ociosos: fronteira protege, demais vendem onde estão.
+  const fac = faccaoDe(atual, faccaoId);
+  if (fac) {
+    const proprios = new Set(bairrosDaFaccao(atual, faccaoId).map((b) => b.id));
+    const fronteira = new Set(
+      bairrosDaFaccao(atual, faccaoId)
+        .filter((b) => b.conexoes.some((c) => !proprios.has(c)))
+        .map((b) => b.id),
+    );
+    for (const s of fac.soldados) {
+      if (!podeAgir(s)) continue;
+      const bairro = bairrosDaFaccao(atual, faccaoId).find((b) => b.id === s.bairroId);
+      if (!bairro) continue;
+      if (fronteira.has(s.bairroId) && suprimentoDoBairro(atual, bairro) >= bairro.demanda) {
+        s.jobAtual = 'proteger';
+      } else {
+        s.jobAtual = 'vender';
+      }
+      s.agiuNoTurno = true;
+    }
+  }
+  // rng reservado pra futura variação; sem uso determinístico agora.
+  void rng;
+  return atual;
 }
 
 /** Contrata advogado quando o calor está no vermelho e sobra caixa acima da reserva. */
@@ -175,11 +209,10 @@ export function executarTurnoIA(state: GameState, faccaoId: string, rng: Rng = M
   if (!fac || fac.tipo !== 'ia') return state;
   const cfg = CONFIG[fac.arquetipo ?? 'agressivo'];
 
-  // 1. Economia: esfria o calor primeiro (sobrevivência), depois arma, recruta e expande produção.
+  // 1. Economia: esfria o calor primeiro (sobrevivência), depois arma e recruta.
   let atual = advogadoSePossivel(state, faccaoId, cfg);
   atual = comprarSePossivel(atual, faccaoId, cfg);
   atual = recrutarSePossivel(atual, faccaoId, cfg, rng);
-  atual = construirBocaSePossivel(atual, faccaoId, cfg);
 
   // 2. Escolhe o melhor alvo (maior razão ponderada de vitória).
   const alvos = alvosPossiveis(atual, faccaoId);
@@ -211,22 +244,9 @@ export function executarTurnoIA(state: GameState, faccaoId: string, rng: Rng = M
     atual = reforcar(atual, faccaoId);
   }
 
-  // 4. Guarda seletiva: só quem está NA FRONTEIRA (bairro que faz divisa com
-  //    inimigo) assume postura defensiva. Turtle geral trava a partida em empate.
-  const facFinal = faccaoDe(atual, faccaoId);
-  if (facFinal) {
-    const proprios = new Set(bairrosDaFaccao(atual, faccaoId).map((b) => b.id));
-    const fronteira = new Set(
-      bairrosDaFaccao(atual, faccaoId)
-        .filter((b) => b.conexoes.some((c) => !proprios.has(c)))
-        .map((b) => b.id),
-    );
-    for (const s of facFinal.soldados) {
-      if (participaDeCombate(s) && s.jobAtual === null && fronteira.has(s.bairroId)) {
-        s.jobAtual = 'proteger';
-      }
-    }
-  }
+  // 4. Distribui os jobs dos ociosos: expande pra neutros, protege a fronteira,
+  //    e põe o resto pra vender (economia da IA).
+  atual = distribuirJobsIA(atual, faccaoId, rng);
 
   return atual;
 }

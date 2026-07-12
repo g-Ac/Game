@@ -1,13 +1,10 @@
 import {
-  aplicarRenda,
   atacarBairro,
-  clonar,
   comprarArma,
   moverSoldado,
   recrutarSoldado,
 } from '../actions';
 import {
-  bairrosDaFaccao,
   faccaoDe,
 } from '../selectors';
 import {
@@ -48,17 +45,18 @@ describe('moverSoldado', () => {
 
 describe('comprarArma', () => {
   it('desconta a caixa e equipa a arma', () => {
-    const g = criarPartida(); // caixa 500
-    const r = comprarArma(g, JOGADOR_ID, 'pistola', 'p3'); // p3 tem faca
+    const g = criarPartida(); // caixa 10000
+    const r = comprarArma(g, JOGADOR_ID, 'pistola', 'p3'); // p3 tem faca, pistola 2500
     expect(r.ok).toBe(true);
     const fac = faccaoDe(r.state, JOGADOR_ID)!;
-    expect(fac.caixa).toBe(200);
+    expect(fac.caixa).toBe(7500);
     expect(fac.soldados.find((s) => s.id === 'p3')!.armaId).toBe('pistola');
   });
 
   it('recusa quando não há caixa', () => {
     const g = criarPartida();
-    const r = comprarArma(g, JOGADOR_ID, 'fuzil', 'p3'); // fuzil 1500 > 500
+    faccaoDe(g, JOGADOR_ID)!.caixa = 500;
+    const r = comprarArma(g, JOGADOR_ID, 'fuzil', 'p3'); // fuzil 14000 > 500
     expect(r.ok).toBe(false);
   });
 
@@ -77,7 +75,7 @@ describe('recrutarSoldado', () => {
     expect(r.ok).toBe(true);
     const fac = faccaoDe(r.state, JOGADOR_ID)!;
     expect(fac.soldados.length).toBe(antes + 1);
-    expect(fac.caixa).toBe(500 - CUSTO_RECRUTA);
+    expect(fac.caixa).toBe(10000 - CUSTO_RECRUTA);
     const novo = fac.soldados[fac.soldados.length - 1];
     expect(novo.bairroId).toBe(B_BECO);
     expect(novo.status).toBe('ativo');
@@ -118,27 +116,3 @@ describe('atacarBairro', () => {
   });
 });
 
-describe('aplicarRenda', () => {
-  it('aumenta a caixa das facções e decai o calor (sem bocas)', () => {
-    const g = clonar(criarPartida());
-    // Zera a produção pra isolar o decaimento base de calor.
-    for (const b of bairrosDaFaccao(g, JOGADOR_ID)) b.producao = 0;
-    const fac = faccaoDe(g, JOGADOR_ID)!;
-    fac.calor = 20;
-    const caixaAntes = fac.caixa;
-    aplicarRenda(g);
-    const depois = faccaoDe(g, JOGADOR_ID)!;
-    expect(depois.caixa).toBeGreaterThan(caixaAntes);
-    expect(depois.calor).toBe(17); // decaimento de 3
-  });
-
-  it('sem territórios não há renda', () => {
-    const g = clonar(criarPartida());
-    // Tira todos os bairros do jogador.
-    for (const b of bairrosDaFaccao(g, JOGADOR_ID)) b.dono = null;
-    const fac = faccaoDe(g, JOGADOR_ID)!;
-    const caixaAntes = fac.caixa;
-    aplicarRenda(g);
-    expect(faccaoDe(g, JOGADOR_ID)!.caixa).toBe(caixaAntes);
-  });
-});

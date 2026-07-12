@@ -26,15 +26,21 @@ export async function carregarJogo(): Promise<GameState | null> {
     // Backfill de campos adicionados em versões novas (saves antigos).
     if (!Array.isArray(parsed.intel)) parsed.intel = [];
     if (typeof parsed.recrutaSeq !== 'number') parsed.recrutaSeq = 0;
+    if (typeof parsed.dificuldade !== 'string') parsed.dificuldade = 'normal';
+    if (parsed.ultimoRelatorio === undefined) parsed.ultimoRelatorio = null;
     for (const b of parsed.cidade.bairros ?? []) {
       if (typeof b.producao !== 'number') b.producao = 0;
+      // Economia (Respect): demanda + estabilidade. Saves antigos derivam demanda do valorBase.
+      if (typeof b.demanda !== 'number') b.demanda = Math.max(8, Math.round((b.valorBase ?? 800) / 100));
+      if (typeof b.estabilidade !== 'number') b.estabilidade = 1;
     }
-    // Campos de personagem/jobs (Respect 2): patente, importante, mortes, job.
+    // Campos de personagem/jobs (Respect 2): patente, importante, mortes, job, corre.
     for (const f of parsed.faccoes) {
       for (const s of f.soldados ?? []) {
         if (typeof s.patente !== 'string') s.patente = 'soldado';
         if (typeof s.importante !== 'boolean') s.importante = s.patente !== 'soldado';
         if (typeof s.mortes !== 'number') s.mortes = 0;
+        if (typeof s.corre !== 'number') s.corre = 4;
         if (s.jobAtual === undefined) s.jobAtual = null;
         if (typeof s.agiuNoTurno !== 'boolean') s.agiuNoTurno = false;
       }

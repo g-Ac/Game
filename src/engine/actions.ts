@@ -8,24 +8,16 @@ import {
   ADVOGADO_REDUZ_CALOR,
   BATIDA_ESFRIA_CALOR,
   CALOR_LIMIAR_BATIDA,
-  CALOR_POR_BOCA,
   CUSTO_ADVOGADO,
-  CUSTO_BOCA,
   CUSTO_ESPIONAGEM,
   CUSTO_RECRUTA,
   ESPIONAGEM_CALOR,
-  FATOR_RENDA,
-  FATOR_VENDA,
   INTEL_BONUS_ATAQUE,
   INTEL_DURACAO,
-  MAX_BOCA_NIVEL,
   NOMES_RECRUTA,
-  RENDA_POR_BOCA,
-  SONDAR_CALOR,
   TRACOS,
-  VENDA_CALOR,
-  VENDA_POR_BOCA,
 } from '../data/seed';
+import { ESTABILIDADE_INICIAL } from './economia';
 import { participaDeCombate, resolverCombate, type Baixa, type Rng } from './combat';
 import {
   alvosPossiveis,
@@ -165,6 +157,7 @@ export function recrutarSoldado(
   const nome = NOMES_RECRUTA[Math.floor(rng() * NOMES_RECRUTA.length)] ?? `Recruta ${seq}`;
   const traco = TRACOS[Math.floor(rng() * TRACOS.length)] ?? 'ganancioso';
   const forca = 7 + Math.floor(rng() * 5); // 7-11
+  const corre = 3 + Math.floor(rng() * 5); // 3-7
 
   fac.caixa -= CUSTO_RECRUTA;
   fac.soldados.push({
@@ -173,6 +166,7 @@ export function recrutarSoldado(
     lealdade: 60,
     traco,
     forca,
+    corre,
     armaId: 'faca',
     status: 'ativo',
     faccaoId,
@@ -184,7 +178,7 @@ export function recrutarSoldado(
     // Recém-chegado: entra em serviço só no próximo turno (não invade no mesmo).
     agiuNoTurno: true,
   });
-  addLog(novo, 'info', `${fac.nome} recrutou ${nome} (fç ${forca}, ${traco}) em ${bairro.nome} (-$${CUSTO_RECRUTA}).`);
+  addLog(novo, 'info', `${fac.nome} recrutou ${nome} (fç ${forca}, corre ${corre}) em ${bairro.nome} (-$${CUSTO_RECRUTA}).`);
   return { state: novo, ok: true, mensagem: `Recrutou ${nome} em ${bairro.nome}.` };
 }
 
@@ -323,16 +317,19 @@ export function invadirComSoldado(
   return res;
 }
 
-/** Job "Vender": o soldado fatura na esquina do bairro dele (renda ativa + calor). */
+/**
+ * Job "Vender": põe o soldado pra vender produto no bairro atual dele. A renda
+ * não é imediata — o Corre dele supre a demanda e o dinheiro entra no fim do
+ * turno (Relatório de Grana). Só marca o job.
+ */
 export function venderNoBairro(
   state: GameState,
   faccaoId: string,
   soldadoId: string,
 ): ResultadoAcao {
   const novo = clonar(state);
-  const fac = faccaoDe(novo, faccaoId);
   const s = encontrarSoldado(novo, soldadoId);
-  if (!fac || !s || s.faccaoId !== faccaoId) {
+  if (!s || s.faccaoId !== faccaoId) {
     return { state, ok: false, mensagem: 'Soldado inválido pra essa facção.' };
   }
   if (!podeAgir(s)) return { state, ok: false, mensagem: `${s.nome} já agiu neste turno.` };
@@ -340,13 +337,57 @@ export function venderNoBairro(
   if (!bairro || bairro.dono !== faccaoId) {
     return { state, ok: false, mensagem: 'Só dá pra vender em bairro seu.' };
   }
-  const ganho = Math.round(bairro.valorBase * FATOR_VENDA) + bairro.producao * VENDA_POR_BOCA;
-  fac.caixa += ganho;
-  fac.calor = Math.min(100, fac.calor + VENDA_CALOR);
   s.agiuNoTurno = true;
   s.jobAtual = 'vender';
-  addLog(novo, 'renda', `${s.nome} vendeu em ${bairro.nome}: +$${ganho}.`);
-  return { state: novo, ok: true, mensagem: `${s.nome} faturou +$${ganho}.` };
+  addLog(novo, 'info', `${s.nome} está vendendo em ${bairro.nome} (corre ${s.corre}).`);
+  return { state: novo, ok: true, mensagem: `${s.nome} vendendo em ${bairro.nome}.` };
+}
+
+/**
+ * Deploy de vendedor (o "Add Soldado" do Respect): move o soldado pra um bairro
+ * e o põe pra vender. Aceita:
+ *   - bairro SEU (realoca livremente dentro do território — logística);
+ *   - bairro NEUTRO na fronteira do teu território (ocupa pacificamente + vende).
+ * Território rival exige combate (invadir). Gasta o job do soldado.
+ */
+export function deployarVendedor(
+  state: GameState,
+  faccaoId: string,
+  soldadoId: string,
+  destinoId: string,
+): ResultadoAcao {
+  const novo = clonar(state);
+  const s = encontrarSoldado(novo, soldadoId);
+  if (!s || s.faccaoId !== faccaoId) {
+    return { state, ok: false, mensagem: 'Soldado inválido pra essa facção.' };
+  }
+  if (!podeAgir(s)) return { state, ok: false, mensagem: `${s.nome} já agiu neste turno.` };
+  const destino = bairroDe(novo, destinoId);
+  if (!destino) return { state, ok: false, mensagem: 'Destino inválido.' };
+
+  const proprios = new Set(bairrosDaFaccao(novo, faccaoId).map((b) => b.id));
+
+  if (destino.dono === faccaoId) {
+    // Realoca dentro do território.
+    s.bairroId = destinoId;
+  } else if (destino.dono === null) {
+    // Ocupa neutro se faz fronteira com teu território.
+    const naFronteira = destino.conexoes.some((c) => proprios.has(c)) || proprios.has(destinoId);
+    if (!naFronteira) {
+      return { state, ok: false, mensagem: 'Só ocupa neutro que faz fronteira com o teu território.' };
+    }
+    destino.dono = faccaoId;
+    destino.estabilidade = ESTABILIDADE_INICIAL; // território novo rende −60% no começo
+    s.bairroId = destinoId;
+    addLog(novo, 'info', `${s.nome} ocupou ${destino.nome} — território novo (vendas instáveis).`);
+  } else {
+    return { state, ok: false, mensagem: 'Território rival — precisa invadir.' };
+  }
+
+  s.agiuNoTurno = true;
+  s.jobAtual = 'vender';
+  addLog(novo, 'info', `${s.nome} foi vender em ${destino.nome}.`);
+  return { state: novo, ok: true, mensagem: `${s.nome} vendendo em ${destino.nome}.` };
 }
 
 /** Job "Proteger": postura defensiva no bairro (bônus de defesa + blinda importantes). */
@@ -393,7 +434,7 @@ export function sondarComSoldado(
   ) {
     return { state, ok: false, mensagem: 'Alvo de sondagem inválido (precisa ser vizinho inimigo).' };
   }
-  fac.calor = Math.min(100, fac.calor + SONDAR_CALOR);
+  fac.calor = Math.min(100, fac.calor + ESPIONAGEM_CALOR);
   novo.intel = novo.intel.filter((m) => !(m.faccaoId === faccaoId && m.bairroId === alvoId));
   novo.intel.push({ faccaoId, bairroId: alvoId, expiraTurno: novo.turno.numero + INTEL_DURACAO });
   s.agiuNoTurno = true;
@@ -466,10 +507,9 @@ export function contratarAdvogado(state: GameState, faccaoId: string): Resultado
 }
 
 /**
- * Batida policial: facções com calor alto sofrem consequências. A batida ataca a
- * fonte do problema — costuma estourar uma boca (produção), senão prende um soldado
- * ou apreende caixa. É isso que dá dente ao trade-off risco × renda da produção.
- * Muta o estado (usar em clone, na resolução do turno). Quanto maior o calor, maior a chance.
+ * Batida policial: facções com calor alto sofrem consequências — prende um
+ * soldado de pé ou apreende caixa. Muta o estado (usar em clone, na resolução do
+ * turno). Quanto maior o calor, maior a chance.
  */
 export function aplicarBatidaPolicial(state: GameState, rng: Rng = Math.random): void {
   for (const fac of state.faccoes) {
@@ -477,20 +517,13 @@ export function aplicarBatidaPolicial(state: GameState, rng: Rng = Math.random):
     const chance = (fac.calor - CALOR_LIMIAR_BATIDA) / 100 + 0.1; // 0.1..0.6
     if (rng() >= chance) continue;
 
-    const bocas = bairrosDaFaccao(state, fac.id).filter((b) => b.producao > 0);
     const dePe = fac.soldados.filter(participaDeCombate);
-
-    // Prioriza estourar uma boca (60%) quando há; senão prende soldado; senão multa.
-    if (bocas.length > 0 && (dePe.length === 0 || rng() < 0.6)) {
-      const b = bocas[Math.floor(rng() * bocas.length)];
-      b.producao -= 1;
-      addLog(state, 'combate', `BATIDA POLICIAL: estouraram a boca em ${b.nome} (${fac.nome}) — nível ${b.producao}.`);
-    } else if (dePe.length > 0) {
+    if (dePe.length > 0) {
       const alvo = dePe[Math.floor(rng() * dePe.length)];
       alvo.status = 'preso';
       addLog(state, 'combate', `BATIDA POLICIAL: ${alvo.nome} (${fac.nome}) foi preso.`);
     } else {
-      const multa = Math.min(fac.caixa, 300);
+      const multa = Math.min(fac.caixa, 2000);
       fac.caixa -= multa;
       addLog(state, 'combate', `BATIDA POLICIAL: ${fac.nome} perdeu $${multa} em apreensão.`);
     }
@@ -501,60 +534,4 @@ export function aplicarBatidaPolicial(state: GameState, rng: Rng = Math.random):
 /** Remove marcadores de intel expirados. Muta o estado (usar em clone). */
 export function limparIntelExpirado(state: GameState): void {
   state.intel = state.intel.filter((m) => m.expiraTurno >= state.turno.numero);
-}
-
-/**
- * Instala ou sobe de nível uma boca (ponto de venda) num bairro próprio.
- * Rende por turno e atrai polícia. Não gasta ação — só caixa.
- */
-export function construirBoca(
-  state: GameState,
-  faccaoId: string,
-  bairroId: string,
-): ResultadoAcao {
-  const novo = clonar(state);
-  const fac = faccaoDe(novo, faccaoId);
-  const bairro = bairroDe(novo, bairroId);
-  if (!fac) return { state, ok: false, mensagem: 'Facção inválida.' };
-  if (!bairro || bairro.dono !== faccaoId) {
-    return { state, ok: false, mensagem: 'Só dá pra montar boca em bairro seu.' };
-  }
-  if (bairro.producao >= MAX_BOCA_NIVEL) {
-    return { state, ok: false, mensagem: `${bairro.nome} já está no nível máximo de boca.` };
-  }
-  if (fac.caixa < CUSTO_BOCA) {
-    return { state, ok: false, mensagem: `Caixa insuficiente pra boca ($${CUSTO_BOCA}).` };
-  }
-  fac.caixa -= CUSTO_BOCA;
-  bairro.producao += 1;
-  addLog(
-    novo,
-    'info',
-    `${fac.nome} montou boca em ${bairro.nome} (nível ${bairro.producao}, +$${RENDA_POR_BOCA}/turno).`,
-  );
-  return { state: novo, ok: true, mensagem: `Boca nível ${bairro.producao} em ${bairro.nome}.` };
-}
-
-/**
- * Renda por turno (territórios + bocas) + calor das bocas + leve decaimento de calor.
- * Muta o estado passado (usar em clone).
- */
-export function aplicarRenda(state: GameState): void {
-  for (const fac of state.faccoes) {
-    const bairros = bairrosDaFaccao(state, fac.id);
-    const baseRenda = Math.round(bairros.reduce((acc, b) => acc + b.valorBase, 0) * FATOR_RENDA);
-    const bocas = bairros.reduce((acc, b) => acc + b.producao, 0);
-    const rendaBoca = bocas * RENDA_POR_BOCA;
-    const renda = baseRenda + rendaBoca;
-    if (renda > 0) {
-      fac.caixa += renda;
-      if (fac.tipo === 'jogador') {
-        const detalhe = rendaBoca > 0 ? ` (bocas +$${rendaBoca})` : '';
-        addLog(state, 'renda', `Renda dos territórios: +$${renda}${detalhe}.`);
-      }
-    }
-    // Bocas atraem polícia; depois o calor decai um pouco.
-    fac.calor = Math.min(100, fac.calor + bocas * CALOR_POR_BOCA);
-    fac.calor = Math.max(0, fac.calor - 3);
-  }
 }

@@ -1,9 +1,16 @@
-import { useEffect } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cores, espaco, fontes } from '../theme/tokens';
 import { useGameStore } from '../store/gameStore';
 import type { HomeProps } from '../navigation/types';
+import type { Dificuldade } from '../types/game';
+
+const DIFICULDADES: { id: Dificuldade; nome: string; desc: string }[] = [
+  { id: 'normal', nome: 'Normal', desc: 'Ritmo tranquilo pra aprender.' },
+  { id: 'dificil', nome: 'Difícil', desc: 'IA agressiva. Bônus no recorde.' },
+  { id: 'og', nome: 'O.G.', desc: 'IA reforçada. Só pra chefão.' },
+];
 
 interface Cidade {
   nome: string;
@@ -27,6 +34,7 @@ export function HomeScreen({ navigation }: HomeProps) {
   const carregar = useGameStore((s) => s.carregar);
   const verificarSave = useGameStore((s) => s.verificarSave);
   const temSave = useGameStore((s) => s.temSave);
+  const [escolhendoDif, setEscolhendoDif] = useState(false);
 
   useEffect(() => {
     void verificarSave();
@@ -34,7 +42,12 @@ export function HomeScreen({ navigation }: HomeProps) {
 
   function iniciar(cidade: Cidade) {
     if (!cidade.desbloqueada) return;
-    novoJogo();
+    setEscolhendoDif(true);
+  }
+
+  function comecar(dif: Dificuldade) {
+    setEscolhendoDif(false);
+    novoJogo(dif);
     navigation.navigate('Game');
   }
 
@@ -94,6 +107,24 @@ export function HomeScreen({ navigation }: HomeProps) {
       <View style={styles.footer}>
         <Text style={styles.brand}>SEU ESTÚDIO AQUI</Text>
       </View>
+
+      <Modal visible={escolhendoDif} transparent animationType="fade" onRequestClose={() => setEscolhendoDif(false)}>
+        <Pressable style={styles.modalBg} onPress={() => setEscolhendoDif(false)}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Text style={styles.modalTitulo}>Zona Sul — Dificuldade</Text>
+            {DIFICULDADES.map((d) => (
+              <Pressable
+                key={d.id}
+                onPress={() => comecar(d.id)}
+                style={({ pressed }) => [styles.difBtn, pressed ? styles.cardPressed : null]}
+              >
+                <Text style={styles.difNome}>{d.nome}</Text>
+                <Text style={styles.difDesc}>{d.desc}</Text>
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScrollView>
   );
 }
@@ -210,4 +241,35 @@ const styles = StyleSheet.create({
     color: cores.mutedDim,
     letterSpacing: 2,
   },
+  modalBg: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    padding: espaco.lg,
+  },
+  modalCard: {
+    backgroundColor: cores.bgElev,
+    borderWidth: 2,
+    borderColor: cores.gold2,
+    borderRadius: 3,
+    padding: espaco.lg,
+    gap: espaco.md,
+  },
+  modalTitulo: {
+    fontFamily: fontes.titulo,
+    fontSize: 18,
+    color: cores.gold1,
+    textAlign: 'center',
+    marginBottom: espaco.xs,
+  },
+  difBtn: {
+    backgroundColor: cores.money,
+    borderWidth: 2,
+    borderColor: cores.moneyLight,
+    borderRadius: 3,
+    padding: espaco.md,
+    alignItems: 'center',
+  },
+  difNome: { fontFamily: fontes.titulo, fontSize: 16, color: cores.cream },
+  difDesc: { fontFamily: fontes.corpo, fontSize: 14, color: cores.cream, opacity: 0.8, marginTop: 2 },
 });
