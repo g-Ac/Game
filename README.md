@@ -51,7 +51,7 @@ tende a empatar.
 
 ## Stack
 
-- Expo SDK 57 + TypeScript (strict)
+- Expo SDK 56 + TypeScript (strict)
 - Zustand (estado global da partida)
 - React Navigation (native-stack)
 - AsyncStorage (persistência)
