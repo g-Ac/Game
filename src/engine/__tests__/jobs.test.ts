@@ -20,44 +20,45 @@ function p1De(state: ReturnType<typeof criarPartida>) {
 }
 
 describe('venderNoBairro', () => {
-  it('põe o soldado pra vender e gasta o job (renda vem no fim do turno)', () => {
+  it('põe o soldado pra vender (job PERSISTENTE, renda no fim do turno)', () => {
     const g = criarPartida();
     const caixaAntes = faccaoDe(g, JOGADOR_ID)!.caixa;
     const r = venderNoBairro(g, JOGADOR_ID, 'p1');
     expect(r.ok).toBe(true);
     // Vender não paga na hora — só marca o job. A grana entra na economia do turno.
     expect(faccaoDe(r.state, JOGADOR_ID)!.caixa).toBe(caixaAntes);
-    const p1 = p1De(r.state);
-    expect(p1.agiuNoTurno).toBe(true);
-    expect(p1.jobAtual).toBe('vender');
+    expect(p1De(r.state).jobAtual).toBe('vender');
   });
 
-  it('recusa se o soldado já agiu neste turno', () => {
+  it('pode reatribuir mesmo depois de já ter agido (job não é gasto)', () => {
     const g = criarPartida();
     p1De(g).agiuNoTurno = true;
-    const r = venderNoBairro(g, JOGADOR_ID, 'p1');
-    expect(r.ok).toBe(false);
+    expect(venderNoBairro(g, JOGADOR_ID, 'p1').ok).toBe(true);
+  });
+
+  it('recusa vender com soldado fora de combate', () => {
+    const g = criarPartida();
+    p1De(g).status = 'preso';
+    expect(venderNoBairro(g, JOGADOR_ID, 'p1').ok).toBe(false);
   });
 });
 
 describe('protegerBairro', () => {
-  it('coloca o soldado em guarda (job proteger)', () => {
+  it('coloca o soldado em guarda (job proteger persistente)', () => {
     const g = criarPartida();
     const r = protegerBairro(g, JOGADOR_ID, 'p1');
     expect(r.ok).toBe(true);
-    const p1 = p1De(r.state);
-    expect(p1.jobAtual).toBe('proteger');
-    expect(p1.agiuNoTurno).toBe(true);
+    expect(p1De(r.state).jobAtual).toBe('proteger');
   });
 });
 
 describe('sondarComSoldado', () => {
-  it('ganha intel sobre vizinho inimigo e gasta o job', () => {
+  it('ganha intel sobre vizinho inimigo (ação do turno, gasta agiu)', () => {
     const g = criarPartida(); // Beco (jogador) vizinho de Vila (neutra)
     const r = sondarComSoldado(g, JOGADOR_ID, 'p1', B_VILA);
     expect(r.ok).toBe(true);
     expect(temIntel(r.state, JOGADOR_ID, B_VILA)).toBe(true);
-    expect(p1De(r.state).jobAtual).toBe('sondar');
+    expect(p1De(r.state).agiuNoTurno).toBe(true);
   });
 
   it('recusa alvo que não é vizinho', () => {
@@ -90,15 +91,17 @@ describe('invadirComSoldado', () => {
 });
 
 describe('resetarJobs', () => {
-  it('libera os jobs dos soldados de pé', () => {
+  it('libera as ações do turno mas MANTÉM o job persistente', () => {
     const g = criarPartida();
     for (const s of faccaoDe(g, JOGADOR_ID)!.soldados) {
       s.agiuNoTurno = true;
-      s.jobAtual = 'proteger';
+      s.jobAtual = 'vender';
     }
     resetarJobs(g, JOGADOR_ID);
+    // Ações liberadas de novo...
     expect(soldadosDisponiveis(g, JOGADOR_ID).length).toBe(3);
-    expect(p1De(g).jobAtual).toBeNull();
+    // ...mas o job continua valendo (não precisa reatribuir todo turno).
+    expect(p1De(g).jobAtual).toBe('vender');
   });
 });
 

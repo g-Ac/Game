@@ -30,7 +30,6 @@ import {
   defesaEstimada,
   faccaoDe,
   forcaDeAtaque,
-  podeAgir,
 } from './selectors';
 import { suprimentoDoBairro } from './economia';
 import type { Arquetipo, GameState } from '../types/game';
@@ -119,25 +118,27 @@ function recrutarSePossivel(
 function distribuirJobsIA(state: GameState, faccaoId: string, rng: Rng): GameState {
   let atual = state;
 
-  // Expansão pacífica pra neutros (prioriza maior demanda).
+  // Expansão pacífica pra neutros (prioriza maior demanda). Usa soldados distintos.
+  const usados = new Set<string>();
   let expansoes = 0;
   let guard = 0;
   while (expansoes < 2 && guard++ < 20) {
     const fac = faccaoDe(atual, faccaoId);
     if (!fac) break;
-    const livre = fac.soldados.find(podeAgir);
+    const livre = fac.soldados.find((s) => participaDeCombate(s) && !usados.has(s.id));
     if (!livre) break;
+    usados.add(livre.id);
     const neutro = alvosDeDeploy(atual, faccaoId)
       .filter((b) => b.dono === null)
       .sort((a, b) => b.demanda - a.demanda)[0];
     if (!neutro) break;
     const r = deployarVendedor(atual, faccaoId, livre.id, neutro.id);
-    if (!r.ok) break;
+    if (!r.ok) continue;
     atual = r.state;
     expansoes += 1;
   }
 
-  // Resto dos ociosos: fronteira protege, demais vendem onde estão.
+  // Resto: fronteira protege, demais vendem onde estão (não mexe em quem já expandiu).
   const fac = faccaoDe(atual, faccaoId);
   if (fac) {
     const proprios = new Set(bairrosDaFaccao(atual, faccaoId).map((b) => b.id));
@@ -147,7 +148,7 @@ function distribuirJobsIA(state: GameState, faccaoId: string, rng: Rng): GameSta
         .map((b) => b.id),
     );
     for (const s of fac.soldados) {
-      if (!podeAgir(s)) continue;
+      if (!participaDeCombate(s) || usados.has(s.id)) continue;
       const bairro = bairrosDaFaccao(atual, faccaoId).find((b) => b.id === s.bairroId);
       if (!bairro) continue;
       if (fronteira.has(s.bairroId) && suprimentoDoBairro(atual, bairro) >= bairro.demanda) {

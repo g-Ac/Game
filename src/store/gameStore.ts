@@ -31,7 +31,7 @@ import {
 import { aplicarEconomia } from '../engine/economia';
 import { gerarMercado } from '../engine/mercado';
 import { executarTurnoIA } from '../engine/ai';
-import { bairroDe, iasDe, soldadosDisponiveis } from '../engine/selectors';
+import { bairroDe, iasDe, soldadosParados } from '../engine/selectors';
 import { avaliarStatus } from '../engine/victory';
 import { carregarJogo, salvarJogo } from '../storage/persistence';
 import type { Dificuldade, GameState } from '../types/game';
@@ -86,7 +86,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     }
     const novo = resultado.state;
     // "Livres" no HUD = soldados que ainda podem receber um job.
-    novo.turno.acoesRestantes = soldadosDisponiveis(novo, novo.jogadorId).length;
+    novo.turno.acoesRestantes = soldadosParados(novo, novo.jogadorId).length;
     novo.status = avaliarStatus(novo);
     if (novo.status === 'vitoria') {
       addLog(novo, 'fim', 'Você dominou toda a Zona Sul. VITÓRIA.');
@@ -245,7 +245,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       s.turno.numero += 1;
       // Novo turno do jogador: libera os jobs de todos os soldados dele.
       resetarJobs(s, s.jogadorId);
-      s.turno.acoesRestantes = soldadosDisponiveis(s, s.jogadorId).length;
+      s.turno.acoesRestantes = soldadosParados(s, s.jogadorId).length;
       s.turno.fase = 'decisao';
       limparIntelExpirado(s);
       // Mercado Negro renova as ofertas.

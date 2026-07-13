@@ -114,11 +114,18 @@ export function forcaDeAtaque(state: GameState, faccaoId: string, alvoId: string
   return { atacantes, poder };
 }
 
-/** Soldados de uma facção que ainda podem receber um job neste turno. */
+/** Soldados de uma facção que ainda podem fazer uma AÇÃO de combate neste turno. */
 export function soldadosDisponiveis(state: GameState, faccaoId: string): Soldado[] {
   const f = faccaoDe(state, faccaoId);
   if (!f) return [];
   return f.soldados.filter(podeAgir);
+}
+
+/** Soldados de pé SEM job atribuído (parados) — os que precisam de trabalho. */
+export function soldadosParados(state: GameState, faccaoId: string): Soldado[] {
+  const f = faccaoDe(state, faccaoId);
+  if (!f) return [];
+  return f.soldados.filter((s) => participaDeCombate(s) && s.jobAtual === null);
 }
 
 /**

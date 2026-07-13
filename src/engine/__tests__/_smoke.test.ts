@@ -6,15 +6,14 @@ import { faccaoDe, soldadosDisponiveis, bairrosDaFaccao } from '../selectors';
 import { criarPartida, JOGADOR_ID, B_VILA } from '../../data/seed';
 import type { GameState } from '../../types/game';
 
-/** Põe todos os soldados livres do jogador pra vender onde estão. */
+/** Põe todos os soldados de pé do jogador pra vender onde estão. */
 function venderTodos(s: GameState): GameState {
-  let loop = 0;
-  while (loop++ < 20) {
-    const livres = soldadosDisponiveis(s, JOGADOR_ID);
-    if (livres.length === 0) break;
-    const r = venderNoBairro(s, JOGADOR_ID, livres[0].id);
-    if (!r.ok) break;
-    s = r.state;
+  const ids = faccaoDe(s, JOGADOR_ID)!.soldados
+    .filter((x) => x.status === 'ativo' || x.status === 'ferido')
+    .map((x) => x.id);
+  for (const id of ids) {
+    const r = venderNoBairro(s, JOGADOR_ID, id);
+    if (r.ok) s = r.state;
   }
   return s;
 }

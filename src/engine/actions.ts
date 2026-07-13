@@ -330,20 +330,18 @@ export function invadirComSoldado(
   }
   const res = executarAssalto(novo, faccaoId, alvoId, atacantes, rng, lider.id);
   if (res.ok) {
-    for (const a of atacantes) {
-      a.agiuNoTurno = true;
-      // Vitória já marcou os sobreviventes como 'proteger' (consolidação); só os
-      // demais (repelidos/baixas) recebem o rótulo 'invadir'.
-      if (a.jobAtual === null) a.jobAtual = 'invadir';
-    }
+    // Invadir é uma AÇÃO do turno (não um job persistente): marca que agiram.
+    // A vitória já pôs os sobreviventes em 'proteger' (consolidação); os repelidos
+    // mantêm o job que já tinham.
+    for (const a of atacantes) a.agiuNoTurno = true;
   }
   return res;
 }
 
 /**
- * Job "Vender": põe o soldado pra vender produto no bairro atual dele. A renda
- * não é imediata — o Corre dele supre a demanda e o dinheiro entra no fim do
- * turno (Relatório de Grana). Só marca o job.
+ * Job "Vender" (PERSISTENTE): põe o soldado pra vender no bairro atual. O job fica
+ * ativo turno após turno até você trocar — a renda entra no fim de cada turno
+ * (Relatório de Grana). Pode reatribuir a qualquer momento.
  */
 export function venderNoBairro(
   state: GameState,
@@ -355,14 +353,14 @@ export function venderNoBairro(
   if (!s || s.faccaoId !== faccaoId) {
     return { state, ok: false, mensagem: 'Soldado inválido pra essa facção.' };
   }
-  if (!podeAgir(s)) return { state, ok: false, mensagem: `${s.nome} já agiu neste turno.` };
+  if (!participaDeCombate(s)) {
+    return { state, ok: false, mensagem: `${s.nome} não pode trabalhar (${s.status}).` };
+  }
   const bairro = bairroDe(novo, s.bairroId);
   if (!bairro || bairro.dono !== faccaoId) {
     return { state, ok: false, mensagem: 'Só dá pra vender em bairro seu.' };
   }
-  s.agiuNoTurno = true;
   s.jobAtual = 'vender';
-  addLog(novo, 'info', `${s.nome} está vendendo em ${bairro.nome} (corre ${s.corre}).`);
   return { state: novo, ok: true, mensagem: `${s.nome} vendendo em ${bairro.nome}.` };
 }
 
@@ -384,7 +382,9 @@ export function deployarVendedor(
   if (!s || s.faccaoId !== faccaoId) {
     return { state, ok: false, mensagem: 'Soldado inválido pra essa facção.' };
   }
-  if (!podeAgir(s)) return { state, ok: false, mensagem: `${s.nome} já agiu neste turno.` };
+  if (!participaDeCombate(s)) {
+    return { state, ok: false, mensagem: `${s.nome} não pode se deslocar (${s.status}).` };
+  }
   const destino = bairroDe(novo, destinoId);
   if (!destino) return { state, ok: false, mensagem: 'Destino inválido.' };
 
@@ -407,13 +407,14 @@ export function deployarVendedor(
     return { state, ok: false, mensagem: 'Território rival — precisa invadir.' };
   }
 
-  s.agiuNoTurno = true;
   s.jobAtual = 'vender';
-  addLog(novo, 'info', `${s.nome} foi vender em ${destino.nome}.`);
   return { state: novo, ok: true, mensagem: `${s.nome} vendendo em ${destino.nome}.` };
 }
 
-/** Job "Proteger": postura defensiva no bairro (bônus de defesa + blinda importantes). */
+/**
+ * Job "Proteger" (PERSISTENTE): postura defensiva no bairro (bônus de defesa +
+ * blinda importantes + fica oculto pro inimigo). Fica ativo até você trocar.
+ */
 export function protegerBairro(
   state: GameState,
   faccaoId: string,
@@ -424,12 +425,12 @@ export function protegerBairro(
   if (!s || s.faccaoId !== faccaoId) {
     return { state, ok: false, mensagem: 'Soldado inválido pra essa facção.' };
   }
-  if (!podeAgir(s)) return { state, ok: false, mensagem: `${s.nome} já agiu neste turno.` };
-  s.agiuNoTurno = true;
+  if (!participaDeCombate(s)) {
+    return { state, ok: false, mensagem: `${s.nome} não pode montar guarda (${s.status}).` };
+  }
   s.jobAtual = 'proteger';
   const bairro = bairroDe(novo, s.bairroId);
-  addLog(novo, 'info', `${s.nome} assumiu a guarda de ${bairro?.nome ?? 'o bairro'}.`);
-  return { state: novo, ok: true, mensagem: `${s.nome} em guarda.` };
+  return { state: novo, ok: true, mensagem: `${s.nome} em guarda em ${bairro?.nome ?? 'o bairro'}.` };
 }
 
 /** Job "Sondar": bisbilhota um bairro adjacente inimigo → intel (grátis, sobe calor). */
@@ -460,8 +461,8 @@ export function sondarComSoldado(
   fac.calor = Math.min(100, fac.calor + ESPIONAGEM_CALOR);
   novo.intel = novo.intel.filter((m) => !(m.faccaoId === faccaoId && m.bairroId === alvoId));
   novo.intel.push({ faccaoId, bairroId: alvoId, expiraTurno: novo.turno.numero + INTEL_DURACAO });
+  // Sondar é uma AÇÃO do turno (não muda o job persistente do soldado).
   s.agiuNoTurno = true;
-  s.jobAtual = 'sondar';
   addLog(novo, 'info', `${s.nome} sondou ${alvo.nome}. Intel obtido (+ataque no próximo assalto).`);
   return { state: novo, ok: true, mensagem: `Intel sobre ${alvo.nome} obtido.` };
 }
@@ -587,10 +588,8 @@ export function driveBy(
   const mortosInimigos = resultado.baixasDefensor.filter((b) => b.status === 'morto').length;
   if (mortosInimigos > 0) lider.mortes += mortosInimigos;
 
-  for (const s of crew) {
-    s.agiuNoTurno = true;
-    s.jobAtual = 'driveby';
-  }
+  // Drive-by é uma AÇÃO do turno (não muda o job persistente do crew).
+  for (const s of crew) s.agiuNoTurno = true;
   fac.calor = Math.min(100, fac.calor + 6);
   fac.respeito += 2 + mortosInimigos * 2;
 
@@ -637,15 +636,16 @@ export function promoverSoldado(
   return { state: novo, ok: true, mensagem: `${s.nome} agora é ${proxima}.` };
 }
 
-/** Reseta os jobs dos soldados de pé de uma facção (início de um turno dela). */
+/**
+ * Início de um novo turno da facção: libera as AÇÕES de combate (agiuNoTurno),
+ * mas MANTÉM o job persistente (vender/proteger seguem valendo turno após turno —
+ * você não precisa reatribuir todo turno).
+ */
 export function resetarJobs(state: GameState, faccaoId: string): void {
   const fac = faccaoDe(state, faccaoId);
   if (!fac) return;
   for (const s of fac.soldados) {
-    if (s.status === 'ativo' || s.status === 'ferido') {
-      s.agiuNoTurno = false;
-      s.jobAtual = null;
-    }
+    if (s.status === 'ativo' || s.status === 'ferido') s.agiuNoTurno = false;
   }
 }
 

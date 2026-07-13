@@ -89,8 +89,7 @@ describe('deployarVendedor', () => {
     expect(vila.estabilidade).toBeCloseTo(0.4, 5);
     const p1 = faccaoDe(r.state, JOGADOR_ID)!.soldados.find((s) => s.id === 'p1')!;
     expect(p1.bairroId).toBe(B_VILA);
-    expect(p1.jobAtual).toBe('vender');
-    expect(p1.agiuNoTurno).toBe(true);
+    expect(p1.jobAtual).toBe('vender'); // job persistente — segue vendendo lá
   });
 
   it('recusa território rival (precisa invadir)', () => {
