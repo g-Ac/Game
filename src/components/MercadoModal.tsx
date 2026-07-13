@@ -1,5 +1,6 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { cores, espaco, fontes } from '../theme/tokens';
+import { dinheiro } from '../util/format';
 import type { MercadoItem, Veiculo } from '../types/game';
 
 interface Props {
@@ -21,7 +22,7 @@ export function MercadoModal({ visible, itens, veiculos, caixa, onComprar, onClo
         <Pressable style={styles.card} onPress={() => {}}>
           <View style={styles.header}>
             <Text style={styles.titulo}>Mercado Negro</Text>
-            <Text style={styles.caixa}>${caixa.toLocaleString('pt-BR')}</Text>
+            <Text style={styles.caixa}>${dinheiro(caixa)}</Text>
           </View>
           <Text style={styles.sub}>Oferta muda a cada turno.</Text>
 
@@ -54,7 +55,7 @@ export function MercadoModal({ visible, itens, veiculos, caixa, onComprar, onClo
                       ]}
                     >
                       <Text style={[styles.btnTxt, !podeComprar ? styles.btnTxtOff : null]}>
-                        ${it.custo.toLocaleString('pt-BR')}
+                        ${dinheiro(it.custo)}
                       </Text>
                     </Pressable>
                   </View>

@@ -205,14 +205,24 @@ export function GameScreen({ navigation }: GameProps) {
       <FlashOverlay seq={flash.seq} cor={flash.cor} />
       <TurnoBanner turno={game.turno.numero} />
 
-      {/* Popups */}
-      <BairroModal bairroId={selBairroId} onClose={() => setSelBairroId(null)} onSelectSoldado={setSelSoldadoId} />
+      {/* Popups — um modal por vez (iOS não curte empilhar) */}
+      <BairroModal
+        bairroId={selSoldadoId ? null : selBairroId}
+        onClose={() => setSelBairroId(null)}
+        onSelectSoldado={(id) => {
+          setSelBairroId(null);
+          setSelSoldadoId(id);
+        }}
+      />
       <SoldadoModal
-        soldadoId={selSoldadoId}
+        soldadoId={lojaAberta ? null : selSoldadoId}
         onClose={() => setSelSoldadoId(null)}
         onAbrirArsenal={() => setLojaAberta(true)}
       />
-      <RelatorioModal relatorio={game.ultimoRelatorio} onFechar={limparRelatorio} />
+      <RelatorioModal
+        relatorio={game.status === 'em_andamento' ? game.ultimoRelatorio : null}
+        onFechar={limparRelatorio}
+      />
       <MercadoModal
         visible={mercadoAberto}
         itens={game.mercado}

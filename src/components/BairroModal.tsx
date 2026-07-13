@@ -2,6 +2,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { cores, espaco, fontes } from '../theme/tokens';
 import { CUSTO_RECRUTA } from '../data/seed';
 import { cifraoDoBairro, suprimentoDoBairro } from '../engine/economia';
+import { dinheiro } from '../util/format';
 import { useGameStore } from '../store/gameStore';
 import {
   armaDe,
@@ -85,7 +86,7 @@ export function BairroModal({ bairroId, onClose, onSelectSoldado }: Props) {
               </Text>
               {oculto ? <Text style={styles.tag}>🌫 Tropa oculta — 🔍 Sondar pra revelar</Text> : null}
               {b.dono && revelado ? (
-                <Text style={styles.tag}>💰 Estoque de {donoFac?.nome}: ${(donoFac?.stash ?? 0).toLocaleString('pt-BR')} (roubável)</Text>
+                <Text style={styles.tag}>💰 Estoque de {donoFac?.nome}: ${dinheiro(donoFac?.stash ?? 0)} (roubável)</Text>
               ) : null}
               <Text style={styles.dica}>
                 {b.dono

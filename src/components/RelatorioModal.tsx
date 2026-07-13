@@ -1,5 +1,6 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { cores, espaco, fontes } from '../theme/tokens';
+import { dinheiro } from '../util/format';
 import type { RelatorioGrana } from '../types/game';
 
 interface Props {
@@ -17,15 +18,15 @@ export function RelatorioModal({ relatorio, onFechar }: Props) {
         <Pressable style={styles.card} onPress={() => {}}>
           <Text style={styles.titulo}>Relatório de Grana</Text>
           <View style={styles.linhas}>
-            <Row rotulo="Ganhos" valor={`$${r.ganhos.toLocaleString('pt-BR')}`} cor={cores.cream} />
-            <Row rotulo="Pagamento Crew" valor={`-$${r.pagamentoCrew.toLocaleString('pt-BR')}`} cor={cores.danger} />
-            <Row rotulo="Custo Produto" valor={`-$${r.custoProduto.toLocaleString('pt-BR')}`} cor={cores.danger} />
+            <Row rotulo="Ganhos" valor={`$${dinheiro(r.ganhos)}`} cor={cores.cream} />
+            <Row rotulo="Pagamento Crew" valor={`-$${dinheiro(r.pagamentoCrew)}`} cor={cores.danger} />
+            <Row rotulo="Custo Produto" valor={`-$${dinheiro(r.custoProduto)}`} cor={cores.danger} />
             <View style={styles.sep} />
-            <Row rotulo="Lucro" valor={`$${r.lucro.toLocaleString('pt-BR')}`} cor={cores.moneyLight} negrito />
+            <Row rotulo="Lucro" valor={`$${dinheiro(r.lucro)}`} cor={cores.moneyLight} negrito />
           </View>
 
           <View style={[styles.respeitoBox, { backgroundColor: r.respeitoSubindo ? '#14351a' : '#3a1414' }]}>
-            <Text style={styles.pagtoMedio}>Pagto médio/soldado: ${r.pagtoMedio.toLocaleString('pt-BR')}</Text>
+            <Text style={styles.pagtoMedio}>Pagto médio/soldado: ${dinheiro(r.pagtoMedio)}</Text>
             <Text style={[styles.respeitoTxt, { color: r.respeitoSubindo ? cores.moneyLight : cores.danger }]}>
               {r.respeitoSubindo
                 ? `Respeito subindo (+${r.deltaRespeito}) 🟢`
@@ -43,7 +44,7 @@ export function RelatorioModal({ relatorio, onFechar }: Props) {
                     {l.nome}
                   </Text>
                   <Text style={styles.terrDados}>
-                    ${l.receita.toLocaleString('pt-BR')} · corre {l.suprido}/{l.demanda}
+                    ${dinheiro(l.receita)} · corre {l.suprido}/{l.demanda}
                     {l.penalidadeNovo > 0 ? `  novo -${Math.round(l.penalidadeNovo * 100)}%` : ''}
                   </Text>
                 </View>
