@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
-import { cores, espaco, fontes } from '../theme/tokens';
+import { cores, fontes } from '../theme/tokens';
 import { cifraoDoBairro } from '../engine/economia';
 import type { Bairro } from '../types/game';
 
@@ -18,7 +18,17 @@ interface Props {
   onPress: () => void;
 }
 
-/** ▼ sub-suprido · ▬ perfeito · ▲ excesso — igual ao mapa do Respect. */
+/** Tons de terreno (aéreo) — variação por bairro pra o mapa não ficar chapado. */
+const TERRENOS = ['#4a4336', '#524a38', '#453f33', '#3e392f', '#4d4738', '#423d32', '#494133', '#3b3730'];
+
+/** Hash estável de string → índice, pra escolher o terreno de forma determinística. */
+function hash(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+/** ▼ sub-suprido · ▬ perfeito · ▲ excesso. */
 function indicadorVenda(suprido: number, demanda: number): { txt: string; cor: string } {
   if (suprido === 0) return { txt: '—', cor: cores.mutedDim };
   if (suprido < demanda) return { txt: '▼', cor: cores.danger };
@@ -38,6 +48,15 @@ export function BairroCard({
   onPress,
 }: Props) {
   const ind = indicadorVenda(suprido, bairro.demanda);
+  const terreno = TERRENOS[hash(bairro.id) % TERRENOS.length];
+  // Dono lido pela cor do tile: verde = seu, vermelho = inimigo, sem tint = neutro.
+  const inimigo = !!donoNome && !ehDoJogador;
+  const tint = ehDoJogador
+    ? 'rgba(77,125,82,0.60)'
+    : inimigo
+      ? 'rgba(168,58,58,0.52)'
+      : 'transparent';
+
   // Pulso quando o bairro troca de dono (momento da conquista).
   const pulso = useRef(new Animated.Value(1)).current;
   const donoAnterior = useRef(bairro.dono);
@@ -57,31 +76,37 @@ export function BairroCard({
       <Pressable
         onPress={onPress}
         style={({ pressed }) => [
-          styles.card,
-          { borderColor: selecionado ? cores.gold1 : donoCor },
+          styles.tile,
+          { backgroundColor: terreno },
           selecionado ? styles.selecionado : null,
           pressed ? styles.pressed : null,
         ]}
       >
-      <Text style={styles.nome} numberOfLines={1}>
-        {bairro.nome}
-      </Text>
-      <Text style={[styles.dono, { color: donoCor }]} numberOfLines={1}>
-        {donoNome ?? 'Neutro'}
-      </Text>
-      <View style={styles.linha}>
-        <Text style={styles.tier}>{cifraoDoBairro(bairro)}</Text>
-        {ehDoJogador ? (
-          <Text style={[styles.ind, { color: ind.cor }]}>
-            {ind.txt} {suprido}/{bairro.demanda}
-          </Text>
-        ) : (
-          <Text style={styles.meta}>dem {bairro.demanda}</Text>
-        )}
-      </View>
+        {/* Tint de dono */}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: tint }]} pointerEvents="none" />
+        {/* Textura de quarteirão (ruas) */}
+        <View pointerEvents="none" style={[styles.ruaH, { top: '34%' }]} />
+        <View pointerEvents="none" style={[styles.ruaH, { top: '68%' }]} />
+        <View pointerEvents="none" style={[styles.ruaV, { left: '38%' }]} />
+        <View pointerEvents="none" style={[styles.ruaV, { left: '72%' }]} />
+
+        {/* Conteúdo */}
+        <Text style={styles.nome} numberOfLines={2}>
+          {bairro.nome}
+        </Text>
+
         <View style={styles.rodape}>
-          <Text style={styles.tropas}>♦ {numSoldados}</Text>
-          {atacavel ? <Text style={styles.alvo}>⚔ ALVO</Text> : null}
+          <Text style={styles.tier}>{cifraoDoBairro(bairro)}</Text>
+          {ehDoJogador ? (
+            <Text style={[styles.ind, { color: ind.cor }]}>
+              {ind.txt}
+              {numSoldados > 0 ? ` ${numSoldados}` : ''}
+            </Text>
+          ) : atacavel ? (
+            <Text style={styles.alvo}>⚔</Text>
+          ) : numSoldados > 0 ? (
+            <Text style={styles.tropasInimigo}>♦{numSoldados}</Text>
+          ) : null}
         </View>
       </Pressable>
     </Animated.View>
@@ -90,67 +115,70 @@ export function BairroCard({
 
 const styles = StyleSheet.create({
   wrap: { flex: 1 },
-  card: {
+  tile: {
     flex: 1,
-    backgroundColor: cores.bgElev,
-    borderWidth: 2,
-    borderRadius: 3,
-    padding: espaco.sm,
-    minHeight: 108,
+    borderRadius: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.45)',
+    padding: 5,
+    minHeight: 88,
+    overflow: 'hidden',
+    justifyContent: 'space-between',
   },
-  selecionado: { backgroundColor: '#20200f' },
-  pressed: { transform: [{ scale: 0.97 }] },
+  selecionado: { borderColor: cores.gold1, borderWidth: 2 },
+  pressed: { opacity: 0.85 },
+  ruaH: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(0,0,0,0.22)',
+  },
+  ruaV: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: 'rgba(0,0,0,0.22)',
+  },
   nome: {
-    fontFamily: fontes.titulo,
-    fontSize: 12,
-    color: cores.cream,
-  },
-  dono: {
     fontFamily: fontes.corpo,
     fontSize: 15,
-    marginTop: 2,
+    lineHeight: 15,
+    color: cores.cream,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 0,
   },
-  linha: {
+  rodape: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: espaco.xs,
-  },
-  meta: {
-    fontFamily: fontes.corpo,
-    fontSize: 14,
-    color: cores.muted,
+    alignItems: 'flex-end',
   },
   tier: {
     fontFamily: fontes.corpo,
     fontSize: 15,
     color: cores.moneyLight,
-    letterSpacing: 1,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 0,
   },
   ind: {
     fontFamily: fontes.corpo,
-    fontSize: 14,
+    fontSize: 15,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 0,
   },
-  rodape: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 'auto',
-    paddingTop: espaco.xs,
-  },
-  tropas: {
+  alvo: {
     fontFamily: fontes.corpo,
     fontSize: 16,
     color: cores.cream,
   },
-  boca: {
-    fontFamily: fontes.corpo,
-    fontSize: 15,
-    color: cores.moneyLight,
-  },
-  alvo: {
+  tropasInimigo: {
     fontFamily: fontes.corpo,
     fontSize: 14,
-    color: cores.bloodLight,
-    letterSpacing: 1,
+    color: cores.cream,
+    opacity: 0.85,
   },
 });

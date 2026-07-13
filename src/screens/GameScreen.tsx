@@ -500,8 +500,8 @@ const styles = StyleSheet.create({
   intelTag: { fontFamily: fontes.corpo, fontSize: 14, color: cores.gold1, textAlign: 'center' },
 
   secao: { fontFamily: fontes.titulo, fontSize: 12, color: cores.muted, letterSpacing: 2, marginTop: espaco.xs },
-  mapaGrid: { gap: espaco.sm },
-  mapaRow: { flexDirection: 'row', gap: espaco.sm },
+  mapaGrid: { gap: 3, borderWidth: 2, borderColor: cores.cardBorder, borderRadius: 3, padding: 3, backgroundColor: '#26241d' },
+  mapaRow: { flexDirection: 'row', gap: 3 },
 
   painel: {
     backgroundColor: cores.bgElev,
