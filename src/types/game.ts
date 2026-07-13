@@ -74,8 +74,10 @@ export interface Soldado {
   /** 0-100. */
   lealdade: number;
   traco: Traco;
-  /** Força base de combate (sem contar arma). */
+  /** Força base de combate (brutalidade, sem contar arma). */
   forca: number;
+  /** Edge — experiência de combate. Sobe lutando; soma no poder. */
+  edge: number;
   /** Corre / hustle — define quanto o soldado fornece de produto ao Vender. */
   corre: number;
   /** id da arma equipada, ou null (briga no braço). */
@@ -136,6 +138,8 @@ export interface Faccao {
   soldados: Soldado[];
   /** Garagem — veículos comprados no Mercado Negro (usados em drive-by). */
   veiculos: Veiculo[];
+  /** Estoque de produto na mão (acumulado das vendas). Oculto; roubável num assalto. */
+  stash: number;
 }
 
 export interface Cidade {

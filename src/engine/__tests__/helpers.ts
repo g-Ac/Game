@@ -26,6 +26,7 @@ export function soldado(over: Partial<Soldado> = {}): Soldado {
     lealdade: 70,
     traco: 'ganancioso',
     forca: 10,
+    edge: 0,
     corre: 4,
     armaId: null,
     colete: false,

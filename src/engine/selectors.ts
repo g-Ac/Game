@@ -65,6 +65,27 @@ export function defensoresDoBairro(state: GameState, bairroId: string): Soldado[
 }
 
 /**
+ * Defensores que `observadorId` CONSEGUE VER num bairro (névoa de guerra). Se é
+ * seu ou você tem intel (sondou), vê todos; senão, os protetores inimigos ficam
+ * ocultos.
+ */
+export function defensoresVisiveis(state: GameState, bairroId: string, observadorId: string): Soldado[] {
+  const b = bairroDe(state, bairroId);
+  if (!b || !b.dono) return [];
+  const todos = defensoresDoBairro(state, bairroId);
+  if (b.dono === observadorId || temIntel(state, observadorId, bairroId)) return todos;
+  return todos.filter((s) => s.jobAtual !== 'proteger');
+}
+
+/** Há defensores ocultos (em Proteger) que `observadorId` ainda não revelou? */
+export function temDefensorOculto(state: GameState, bairroId: string, observadorId: string): boolean {
+  const b = bairroDe(state, bairroId);
+  if (!b || !b.dono || b.dono === observadorId) return false;
+  if (temIntel(state, observadorId, bairroId)) return false;
+  return defensoresDoBairro(state, bairroId).some((s) => s.jobAtual === 'proteger');
+}
+
+/**
  * Força de ataque que `faccaoId` consegue projetar sobre `alvoId`: soma do poder
  * dos soldados de pé em bairros próprios adjacentes ao alvo.
  */

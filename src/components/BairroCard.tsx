@@ -13,6 +13,8 @@ interface Props {
   suprido: number;
   /** true = território do jogador (mostra o indicador de venda). */
   ehDoJogador: boolean;
+  /** Névoa de guerra: há defensores ocultos ainda não revelados (mostra "?"). */
+  temOculto?: boolean;
   selecionado: boolean;
   atacavel: boolean;
   onPress: () => void;
@@ -43,6 +45,7 @@ export function BairroCard({
   numSoldados,
   suprido,
   ehDoJogador,
+  temOculto = false,
   selecionado,
   atacavel,
   onPress,
@@ -102,11 +105,13 @@ export function BairroCard({
               {ind.txt}
               {numSoldados > 0 ? ` ${numSoldados}` : ''}
             </Text>
-          ) : atacavel ? (
-            <Text style={styles.alvo}>⚔</Text>
-          ) : numSoldados > 0 ? (
-            <Text style={styles.tropasInimigo}>♦{numSoldados}</Text>
-          ) : null}
+          ) : (
+            <Text style={styles.tropasInimigo}>
+              {numSoldados > 0 ? `♦${numSoldados}` : ''}
+              {temOculto ? ' ?' : ''}
+              {atacavel ? ' ⚔' : ''}
+            </Text>
+          )}
         </View>
       </Pressable>
     </Animated.View>

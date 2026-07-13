@@ -20,6 +20,7 @@ import {
   invadirComSoldado,
   limparIntelExpirado,
   moverSoldado as moverSoldadoEngine,
+  promoverSoldado as promoverSoldadoEngine,
   protegerBairro as protegerBairroEngine,
   recrutarSoldado as recrutarSoldadoEngine,
   resetarJobs,
@@ -69,6 +70,7 @@ interface GameStore {
   // Gestão da facção (dependem só de caixa, não gastam job).
   comprarArma: (armaId: string, soldadoId: string) => void;
   comprarMercado: (itemId: string, soldadoId?: string) => void;
+  promoverSoldado: (soldadoId: string) => void;
   recrutarSoldado: (bairroId: string) => void;
   contratarAdvogado: () => void;
 
@@ -204,6 +206,12 @@ export const useGameStore = create<GameStore>((set, get) => {
       const game = ativo();
       if (!game) return;
       aplicar(comprarMercadoEngine(game, game.jogadorId, itemId, soldadoId));
+    },
+
+    promoverSoldado(soldadoId) {
+      const game = ativo();
+      if (!game) return;
+      aplicar(promoverSoldadoEngine(game, game.jogadorId, soldadoId));
     },
 
     recrutarSoldado(bairroId) {

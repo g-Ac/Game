@@ -119,6 +119,7 @@ function soldado(
     lealdade: 70,
     traco,
     forca,
+    edge: 0,
     corre,
     armaId,
     colete: false,
@@ -149,6 +150,7 @@ function jogador(): Faccao {
       soldado('p3', 'Formiga', JOGADOR_ID, B_BECO, 8, 4, 'covarde', 'faca'),
     ],
     veiculos: [],
+    stash: 0,
   };
 }
 
@@ -180,6 +182,7 @@ function ia(dificuldade: Dificuldade): Faccao {
     calor: 0,
     soldados,
     veiculos: [],
+    stash: 0,
   };
 }
 

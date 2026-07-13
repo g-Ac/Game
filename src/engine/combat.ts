@@ -73,10 +73,10 @@ export function participaDeCombate(s: Soldado): boolean {
   return s.status === 'ativo' || s.status === 'ferido';
 }
 
-/** Poder efetivo de um soldado = (força + dano da arma) * traço * penalidade de ferimento. */
+/** Poder efetivo = (brutalidade + edge + dano da arma) * traço * penalidade de ferimento. */
 export function poderEfetivo(s: Soldado, arma: Arma | undefined): number {
   if (!participaDeCombate(s)) return 0;
-  const base = s.forca + (arma?.dano ?? 0);
+  const base = s.forca + s.edge + (arma?.dano ?? 0);
   const feridoPenalidade = s.status === 'ferido' ? 0.5 : 1;
   return base * MOD_TRACO[s.traco] * feridoPenalidade;
 }

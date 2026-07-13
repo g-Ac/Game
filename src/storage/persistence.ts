@@ -38,11 +38,13 @@ export async function carregarJogo(): Promise<GameState | null> {
     // Campos de personagem/jobs (Respect 2): patente, importante, mortes, job, corre, colete.
     for (const f of parsed.faccoes) {
       if (!Array.isArray(f.veiculos)) f.veiculos = [];
+      if (typeof f.stash !== 'number') f.stash = 0;
       for (const s of f.soldados ?? []) {
         if (typeof s.patente !== 'string') s.patente = 'soldado';
         if (typeof s.importante !== 'boolean') s.importante = s.patente !== 'soldado';
         if (typeof s.mortes !== 'number') s.mortes = 0;
         if (typeof s.corre !== 'number') s.corre = 4;
+        if (typeof s.edge !== 'number') s.edge = 0;
         if (typeof s.colete !== 'boolean') s.colete = false;
         if (s.jobAtual === undefined) s.jobAtual = null;
         if (typeof s.agiuNoTurno !== 'boolean') s.agiuNoTurno = false;

@@ -12,11 +12,13 @@ import {
   armaDe,
   ataqueDoBairroEstimado,
   bairroDe,
+  defensoresVisiveis,
   defesaEstimada,
   faccaoDe,
   jogador as jogadorSel,
   podeAgir,
   soldadosNoBairro,
+  temDefensorOculto,
   temIntel,
 } from '../engine/selectors';
 import { BairroCard } from '../components/BairroCard';
@@ -77,6 +79,7 @@ export function GameScreen({ navigation }: GameProps) {
   const driveBy = useGameStore((s) => s.driveBy);
   const comprarArma = useGameStore((s) => s.comprarArma);
   const comprarMercado = useGameStore((s) => s.comprarMercado);
+  const promoverSoldado = useGameStore((s) => s.promoverSoldado);
   const recrutarSoldado = useGameStore((s) => s.recrutarSoldado);
   const contratarAdvogado = useGameStore((s) => s.contratarAdvogado);
   const passarTurno = useGameStore((s) => s.passarTurno);
@@ -219,7 +222,13 @@ export function GameScreen({ navigation }: GameProps) {
               <View key={i} style={styles.mapaRow}>
                 {linha.map((b) => {
                   const dono = b.dono ? faccaoDe(game, b.dono) : undefined;
-                  const num = b.dono ? soldadosNoBairro(game, b.dono, b.id).filter(dePe).length : 0;
+                  const meu = b.dono === game.jogadorId;
+                  // Névoa de guerra: em território inimigo só conta quem está visível.
+                  const num = !b.dono
+                    ? 0
+                    : meu
+                      ? soldadosNoBairro(game, b.dono, b.id).filter(dePe).length
+                      : defensoresVisiveis(game, b.id, game.jogadorId).length;
                   return (
                     <BairroCard
                       key={b.id}
@@ -227,8 +236,9 @@ export function GameScreen({ navigation }: GameProps) {
                       donoNome={dono?.nome ?? null}
                       donoCor={dono?.cor ?? cores.neutral}
                       numSoldados={num}
-                      suprido={b.dono === game.jogadorId ? suprimentoDoBairro(game, b) : 0}
-                      ehDoJogador={b.dono === game.jogadorId}
+                      suprido={meu ? suprimentoDoBairro(game, b) : 0}
+                      ehDoJogador={meu}
+                      temOculto={temDefensorOculto(game, b.id, game.jogadorId)}
                       selecionado={selBairroId === b.id}
                       atacavel={alvos.has(b.id)}
                       onPress={() => selecionarBairro(b.id)}
@@ -271,8 +281,21 @@ export function GameScreen({ navigation }: GameProps) {
                 <View style={styles.ataqueBox}>
                   <Text style={styles.previewTxt}>
                     Demanda {selBairro.demanda} · Defesa{' '}
-                    <Text style={styles.previewNum}>{defesaEstimada(game, selBairro.id)}</Text>
+                    <Text style={styles.previewNum}>
+                      {temDefensorOculto(game, selBairro.id, game.jogadorId)
+                        ? '???'
+                        : defesaEstimada(game, selBairro.id)}
+                    </Text>
                   </Text>
+                  {temDefensorOculto(game, selBairro.id, game.jogadorId) ? (
+                    <Text style={styles.intelTag}>🌫 Tropa oculta — 🔍 Sondar pra revelar</Text>
+                  ) : null}
+                  {selBairro.dono && temIntel(game, game.jogadorId, selBairro.id) ? (
+                    <Text style={styles.intelTag}>
+                      💰 Estoque de {faccaoDe(game, selBairro.dono)?.nome}: $
+                      {(faccaoDe(game, selBairro.dono)?.stash ?? 0).toLocaleString('pt-BR')} (roubável)
+                    </Text>
+                  ) : null}
                   <Text style={styles.dicaMini}>
                     {selBairro.dono
                       ? 'Território rival — selecione um soldado vizinho e ⚔ Invadir.'
@@ -310,7 +333,24 @@ export function GameScreen({ navigation }: GameProps) {
                     </Text>
                     <Text style={styles.soldadoMeta}>
                       {PATENTE_LABEL[selSoldado.patente]} · corre {selSoldado.corre} · fç {selSoldado.forca}
+                      {selSoldado.edge > 0 ? ` · edge ${selSoldado.edge}` : ''}
+                      {selSoldado.mortes > 0 ? ` · ${selSoldado.mortes}☠` : ''}
                     </Text>
+                    {selSoldado.patente !== 'capitao' ? (
+                      (() => {
+                        const custo = selSoldado.patente === 'soldado' ? 5000 : 12000;
+                        const prox = selSoldado.patente === 'soldado' ? 'Tenente' : 'Capitão';
+                        return (
+                          <Botao
+                            titulo={`⬆ Promover a ${prox} ($${custo})`}
+                            variante="neutro"
+                            disabled={jog.caixa < custo}
+                            onPress={() => promoverSoldado(selSoldado.id)}
+                            style={styles.promoverBtn}
+                          />
+                        );
+                      })()
+                    ) : null}
                   </View>
 
                   {soldadoLivre ? (
@@ -334,6 +374,7 @@ export function GameScreen({ navigation }: GameProps) {
                       {/* Invadir / Sondar por alvo vizinho rival */}
                       {alvosSoldado.map((alvo) => {
                         const atk = ataqueDoBairroEstimado(game, game.jogadorId, selSoldado.bairroId, alvo.id);
+                        const oculto = temDefensorOculto(game, alvo.id, game.jogadorId);
                         const def = defesaEstimada(game, alvo.id);
                         const intel = temIntel(game, game.jogadorId, alvo.id);
                         const rival = alvo.dono !== null;
@@ -344,7 +385,7 @@ export function GameScreen({ navigation }: GameProps) {
                               {rival ? (
                                 <>
                                   : ataque <Text style={styles.previewNum}>{atk}</Text> vs def{' '}
-                                  <Text style={styles.previewNum}>{def}</Text>
+                                  <Text style={styles.previewNum}>{oculto ? '???' : def}</Text>
                                 </>
                               ) : (
                                 <Text style={styles.dicaMini}>(neutro)</Text>
@@ -531,9 +572,10 @@ const styles = StyleSheet.create({
   vazioBairro: { fontFamily: fontes.corpo, fontSize: 15, color: cores.mutedDim },
 
   acoesSoldado: { borderTopWidth: 1, borderTopColor: cores.cardBorder, paddingTop: espaco.sm, gap: espaco.sm },
-  soldadoHead: { gap: 2 },
+  soldadoHead: { gap: espaco.xs },
   soldadoNome: { fontFamily: fontes.titulo, fontSize: 15, color: cores.cream },
   soldadoMeta: { fontFamily: fontes.corpo, fontSize: 14, color: cores.muted },
+  promoverBtn: { marginTop: espaco.xs },
   jobLabel: { fontFamily: fontes.titulo, fontSize: 11, color: cores.gold1, letterSpacing: 2 },
   jobGrid: { flexDirection: 'row', gap: espaco.sm },
   jobBtn: { flex: 1 },

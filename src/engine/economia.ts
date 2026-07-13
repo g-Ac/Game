@@ -8,9 +8,33 @@
  * demais pra pouco território derruba o respeito (auto-regula o jogo).
  */
 
-import type { Bairro, GameState, LinhaRelatorio, RelatorioGrana } from '../types/game';
+import type { Bairro, Faccao, GameState, LinhaRelatorio, RelatorioGrana, Traco } from '../types/game';
 import { participaDeCombate } from './combat';
+import { addLog } from './actions';
 import { bairrosDaFaccao, faccaoDe } from './selectors';
+
+/** Sensibilidade à deserção por traço (multiplicador da perda de lealdade). */
+const DESERCAO_TRACO: Record<Traco, number> = { leal: 0.5, ganancioso: 1.2, covarde: 1.5 };
+
+/**
+ * Ajusta a lealdade da tropa pelo respeito da gangue e devolve quem desertou
+ * (lealdade zerada). Respeito subindo recupera lealdade; caindo, corrói — e os
+ * mais desleais/covardes vão embora (estilo Respect: respeito ≤1 o cara te abandona).
+ */
+function aplicarLealdade(fac: Faccao, respeitoSubindo: boolean, deltaMag: number) {
+  const desertaram: Faccao['soldados'] = [];
+  for (const s of fac.soldados) {
+    if (s.status !== 'ativo' && s.status !== 'ferido') continue;
+    if (respeitoSubindo) {
+      s.lealdade = Math.min(100, s.lealdade + 3);
+    } else {
+      const perda = Math.round((4 + deltaMag) * DESERCAO_TRACO[s.traco]);
+      s.lealdade = Math.max(0, s.lealdade - perda);
+      if (s.lealdade <= 0) desertaram.push(s);
+    }
+  }
+  return desertaram;
+}
 
 /** Caixa inicial (escala Respect). */
 export const CAIXA_INICIAL = 10000;
@@ -125,7 +149,24 @@ export function aplicarEconomia(state: GameState): void {
     const rel = calcularRelatorio(state, fac.id);
     fac.caixa += rel.lucro;
     fac.respeito = Math.max(0, fac.respeito + rel.deltaRespeito);
+    // Estoque de produto na mão = o que foi movido neste turno (roubável num assalto).
+    fac.stash = rel.ganhos;
     if (fac.id === state.jogadorId) state.ultimoRelatorio = rel;
+
+    // Lealdade + deserção: respeito baixo faz os descontentes abandonarem a gangue.
+    const desertaram = aplicarLealdade(fac, rel.respeitoSubindo, Math.abs(rel.deltaRespeito));
+    if (desertaram.length > 0) {
+      const ids = new Set(desertaram.map((s) => s.id));
+      fac.soldados = fac.soldados.filter((s) => !ids.has(s.id));
+      if (fac.id === state.jogadorId) {
+        addLog(
+          state,
+          'sistema',
+          `DESERÇÃO: ${desertaram.map((s) => s.nome).join(', ')} abandonaram a gangue (respeito baixo).`,
+        );
+      }
+    }
+
     // Territórios estabilizam (as vendas sobem até 100%).
     for (const b of bairrosDaFaccao(state, fac.id)) {
       b.estabilidade = Math.min(1, b.estabilidade + ESTABILIDADE_RAMPA);

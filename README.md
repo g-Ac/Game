@@ -30,9 +30,15 @@ Sim de império criminoso por turnos (paper/protótipo). Este repositório cont�
 - **Drive-by**: embarca o crew num carro e mete bala num rival vizinho — fere/mata
   defensores mas **não toma o território** (bate e corre). Velocidade turbina o ataque,
   blindagem protege o crew.
-- **Personagens com identidade**: Corre, patente (Soldado / Tenente / Capitão),
-  ⭐ peças-chave, mortes. **Importantes são blindados** em combate (o escudo leva o tiro
-  primeiro).
+- **Personagens com identidade**: Corre, **Edge** (XP de combate, sobe lutando),
+  patente (Soldado / Tenente / Capitão), ⭐ peças-chave, mortes, lealdade. **Importantes
+  são blindados** em combate (o escudo leva o tiro primeiro). **Promover** sobe patente e stats.
+- **Névoa de guerra**: tropa inimiga em Proteger fica **oculta** no mapa; só **🔍 Sondar**
+  revela (defesa real + estoque escondido).
+- **Deserção**: respeito baixo corrói a lealdade — os descontentes/covardes **abandonam
+  a gangue**. Gerência ruim tem consequência.
+- **Stash roubável**: cada gangue acumula um estoque de produto (do que vendeu). **Tomar
+  território rival saqueia parte do estoque** direto pra tua caixa.
 - **Combate** força + arma vs defesa, com **consolidação** (quem toma um bairro cava
   trincheira e segura o contra-ataque). Território protegido segura o empate; desguarnecido cai.
 - **Heat / polícia**: sondar/operações sobem o calor; calor alto arrisca batida

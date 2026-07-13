@@ -68,6 +68,16 @@ function aplicarBaixas(state: GameState, baixas: Baixa[]): void {
   }
 }
 
+/** Teto de Edge (experiência de combate). */
+const MAX_EDGE = 8;
+
+/** Quem lutou e ficou de pé ganha +1 de Edge (experiência de combate). */
+function ganharEdge(soldados: Soldado[]): void {
+  for (const s of soldados) {
+    if ((s.status === 'ativo' || s.status === 'ferido') && s.edge < MAX_EDGE) s.edge += 1;
+  }
+}
+
 /** Move um soldado pra um bairro próprio adjacente. */
 export function moverSoldado(
   state: GameState,
@@ -166,6 +176,7 @@ export function recrutarSoldado(
     lealdade: 60,
     traco,
     forca,
+    edge: 0,
     corre,
     armaId: 'faca',
     colete: false,
@@ -211,6 +222,9 @@ function executarAssalto(
   const resultado = resolverCombate(atacantes, defensores, alvo, armasMap(novo), rng, bonus);
   aplicarBaixas(novo, resultado.baixasAtacante);
   aplicarBaixas(novo, resultado.baixasDefensor);
+  // Quem lutou e sobreviveu ganha experiência (Edge).
+  ganharEdge(atacantes);
+  ganharEdge(defensores);
 
   // Crédito de mortes: o líder (ou o atacante mais forte) leva as baixas fatais inimigas.
   const mortosInimigos = resultado.baixasDefensor.filter((b) => b.status === 'morto').length;
@@ -243,9 +257,17 @@ function executarAssalto(
     }
     fac.respeito += 10 + Math.round(alvo.valorBase / 100);
     fac.calor = Math.min(100, fac.calor + 8);
+    // Saque: tomar território rival rouba parte do estoque de produto (stash) da gangue.
+    let tagSaque = '';
+    if (donoAntigo && donoAntigo.id !== faccaoId && donoAntigo.stash > 0) {
+      const saque = Math.round(donoAntigo.stash * 0.4);
+      donoAntigo.stash -= saque;
+      fac.caixa += saque;
+      tagSaque = ` Saqueou $${saque} do estoque de ${donoAntigo.nome}.`;
+    }
     const de = donoAntigo ? ` (tomado de ${donoAntigo.nome})` : '';
-    addLog(novo, 'combate', `${fac.nome} DOMINOU ${alvo.nome}${de}. ${nBaixas} baixa(s).`);
-    return { state: novo, ok: true, mensagem: `Você dominou ${alvo.nome}!` };
+    addLog(novo, 'combate', `${fac.nome} DOMINOU ${alvo.nome}${de}. ${nBaixas} baixa(s).${tagSaque}`);
+    return { state: novo, ok: true, mensagem: `Você dominou ${alvo.nome}!${tagSaque}` };
   }
 
   fac.calor = Math.min(100, fac.calor + 4);
@@ -498,6 +520,7 @@ export function comprarMercado(
       lealdade: 80,
       traco: 'leal',
       forca: 13,
+      edge: 2,
       corre: 8,
       armaId: 'escopeta',
       colete: true,
@@ -559,6 +582,7 @@ export function driveBy(
   const resultado = resolverDriveBy(crew, defensores, alvo, carro, armasMap(novo), rng);
   aplicarBaixas(novo, resultado.baixasAtacante);
   aplicarBaixas(novo, resultado.baixasDefensor);
+  ganharEdge(crew);
 
   const mortosInimigos = resultado.baixasDefensor.filter((b) => b.status === 'morto').length;
   if (mortosInimigos > 0) lider.mortes += mortosInimigos;
@@ -577,6 +601,40 @@ export function driveBy(
     `${fac.nome} deu um drive-by em ${alvo.nome} (${carro.nome}) — ${nBaixas} baixa(s).`,
   );
   return { state: novo, ok: true, mensagem: `Drive-by em ${alvo.nome}: ${resultado.baixasDefensor.length} inimigo(s) atingido(s).` };
+}
+
+/** Custo pra promover, por patente atual (soldado→tenente, tenente→capitão). */
+export const CUSTO_PROMOCAO: Record<string, number> = { soldado: 5000, tenente: 12000 };
+
+/** Promove um soldado (Soldado→Tenente→Capitão): sobe stats e o torna importante. */
+export function promoverSoldado(
+  state: GameState,
+  faccaoId: string,
+  soldadoId: string,
+): ResultadoAcao {
+  const novo = clonar(state);
+  const fac = faccaoDe(novo, faccaoId);
+  const s = encontrarSoldado(novo, soldadoId);
+  if (!fac || !s || s.faccaoId !== faccaoId) {
+    return { state, ok: false, mensagem: 'Soldado inválido pra essa facção.' };
+  }
+  if (s.status === 'morto' || s.status === 'preso') {
+    return { state, ok: false, mensagem: `${s.nome} não pode ser promovido (${s.status}).` };
+  }
+  const proxima = s.patente === 'soldado' ? 'tenente' : s.patente === 'tenente' ? 'capitao' : null;
+  if (!proxima) return { state, ok: false, mensagem: `${s.nome} já é Capitão.` };
+  const custo = CUSTO_PROMOCAO[s.patente] ?? 0;
+  if (fac.caixa < custo) {
+    return { state, ok: false, mensagem: `Caixa insuficiente pra promover ($${custo}).` };
+  }
+  fac.caixa -= custo;
+  s.patente = proxima;
+  s.importante = true;
+  s.forca += 2;
+  s.corre += 1;
+  s.edge = Math.min(MAX_EDGE, s.edge + 1);
+  addLog(novo, 'info', `${s.nome} foi promovido a ${proxima} (fç+2, corre+1).`);
+  return { state: novo, ok: true, mensagem: `${s.nome} agora é ${proxima}.` };
 }
 
 /** Reseta os jobs dos soldados de pé de uma facção (início de um turno dela). */
